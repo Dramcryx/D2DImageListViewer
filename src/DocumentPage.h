@@ -3,22 +3,22 @@
 
 #include <d2d1.h>
 
-class CDocumentPage
+#include "ComPtrOwner.h"
+#include "IDocumentPage.h"
+
+class CDocumentPage : public IDocumentPage
 {
 public:
-    enum class TPageState {
-        LOADED,
-        LOADING,
-        FAILED
-    };
+    CDocumentPage(const wchar_t* fileName, IWICImagingFactory* wicFactory, ID2D1RenderTarget* target);
+    ~CDocumentPage() override = default;
 
-    CDocumentPage();
-    ~CDocumentPage();
+    TPageState GetPageState() const override;
+    SIZE GetPageSize() const override;
 
-    TPageState GetPageState() const;
-    RECT GetPageRect() const;
+    ID2D1Bitmap* GetPageBitmap() const override;
 
-    ID2D1Bitmap& GetPageBitmap() const;
+private:
+    CComPtrOwner<ID2D1Bitmap> bitmap = nullptr;
 };
 
 #endif

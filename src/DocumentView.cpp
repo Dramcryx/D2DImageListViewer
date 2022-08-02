@@ -2,36 +2,17 @@
 
 #include <cassert>
 #include <functional>
+#include <iostream>
 #include <unordered_map>
 
 #include <d2d1.h>
 
-template<typename T>
-struct CComPtrOwner
+namespace{
+std::ostream& operator<<(std::ostream& out, const D2D1_RECT_F& rect)
 {
-    T* ptr;
-
-    CComPtrOwner(T* _ptr) : ptr{_ptr}
-    {}
-
-    ~CComPtrOwner()
-    {
-        if(ptr != nullptr)
-        {
-            ptr->Release();
-        }
-    }
-
-    operator T*()
-    {
-        return ptr;
-    }
-
-    T* operator->()
-    {
-        return ptr;
-    }
-};
+    return out << rect.left << ' ' << rect.top << ' ' << rect.right << ' ' << rect.bottom << std::endl;
+}
+}
 
 CDocumentView::~CDocumentView() = default;
 
@@ -39,13 +20,9 @@ void CDocumentView::AttachHandle(HWND _window)
 {
     this->window = _window;
 
-    if (d2dFactory != nullptr)
-    {
-        d2dFactory->Release();
-        d2dFactory = nullptr;
-    }
+    d2dFactory.Reset();
 
-    assert(D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, &d2dFactory) == S_OK);
+    assert(D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, &d2dFactory.ptr) == S_OK);
 }
 
 void CDocumentView::SetModel(CDocumentModel* _model)
@@ -61,7 +38,11 @@ CDocumentModel* CDocumentView::GetModel() const
 bool CDocumentView::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
 {
     static std::unordered_map<UINT, std::function<void(CDocumentView*, WPARAM, LPARAM)>> messageHandlers{
-        {WM_PAINT, &CDocumentView::OnDraw}
+        {WM_PAINT, &CDocumentView::OnDraw},
+        {WM_ERASEBKGND, &CDocumentView::OnDraw},
+        {WM_SIZE, &CDocumentView::OnSize},
+        //{WM_SIZING, &CDocumentView::OnSizing}
+        {WM_MOUSEWHEEL, &CDocumentView::OnScroll},
     };
 
     auto findRes = messageHandlers.find(msg);
@@ -77,16 +58,11 @@ void CDocumentView::OnDraw(WPARAM, LPARAM)
 {
     RECT rect;
     auto clientRect = GetClientRect(window, &rect);
-    D2D1_SIZE_U size = D2D1::SizeU(
-            rect.right - rect.left,
-            rect.bottom - rect.top
-            );
-    
-    CComPtrOwner<ID2D1HwndRenderTarget> renderTarget = nullptr;
-    assert(d2dFactory->CreateHwndRenderTarget(
-                D2D1::RenderTargetProperties(),
-                D2D1::HwndRenderTargetProperties(window, size),
-                &renderTarget.ptr) == S_OK);
+    auto size = D2D1::SizeU(rect.right - rect.left, rect.bottom - rect.top);
+
+    if (renderTarget == nullptr) {
+        createDependentResources(size);
+    }
 
     CComPtrOwner<ID2D1SolidColorBrush> brush = nullptr;
     assert(renderTarget->CreateSolidColorBrush(
@@ -95,11 +71,93 @@ void CDocumentView::OnDraw(WPARAM, LPARAM)
 
     D2D1_RECT_F drawRect{rect.left, rect.top, rect.right, rect.bottom};
 
+    resize(size.width, size.height);
+    
     renderTarget->BeginDraw();
 
     renderTarget->FillRectangle(&drawRect, brush);
 
+    if (model != nullptr)
+    {
+        float pageOffset = 0.0f;
+        for(int i = 0; i < model->GetPageCount(); ++i)
+        {
+            auto page = reinterpret_cast<IDocumentPage*>(model->GetData(i, TDocumentModelRoles::PageRole));
+            if (page != nullptr)
+            {
+                const auto pageSize = page->GetPageSize();
+                
+                const D2D1_RECT_F d2dPageRect{0,0, pageSize.cx, pageSize.cy};
+
+                double pageScale = std::min((double)size.width / pageSize.cx, 1.0);
+                const D2D1_RECT_F d2dScaledRect{
+                    0.0,
+                    pageOffset,
+                    pageSize.cx * pageScale,
+                    pageOffset + pageSize.cy * pageScale};
+                
+                renderTarget->DrawBitmap(page->GetPageBitmap(),
+                    d2dScaledRect,
+                    1.0,
+                    D2D1_BITMAP_INTERPOLATION_MODE_NEAREST_NEIGHBOR,
+                    NULL);
+                pageOffset += d2dScaledRect.bottom;
+            }
+        }
+        SetScrollRange(window, SB_VERT, 0, pageOffset, false);
+        SetScrollRange(window, SB_HORZ, 0, 0, false);
+    }
+
 
     renderTarget->EndDraw();
-    renderTarget->Release();
+}
+
+void CDocumentView::OnSize(WPARAM, LPARAM lParam)
+{
+    int width = LOWORD(lParam);
+    int height = HIWORD(lParam);
+    resize(width, height);
+}
+
+void CDocumentView::OnSizing(WPARAM, LPARAM lParam)
+{
+    auto asRect = (RECT*)lParam;
+
+    int newWidth = asRect->right - asRect->left - GetSystemMetrics(SM_CXVSCROLL);
+    int newHeight = asRect->bottom - asRect->top - GetSystemMetrics(SM_CXHSCROLL);
+    
+    resize(newWidth, newHeight);
+}
+
+void CDocumentView::OnScroll(WPARAM wParam, LPARAM)
+{
+    std::cout << __PRETTY_FUNCTION__ << "\n";
+    std::cout << GET_WHEEL_DELTA_WPARAM(wParam) << "\n";
+    
+    // D2D1_MATRIX_3X2_F matrix;
+    // auto transform = renderTarget->GetTransform()
+}
+
+void CDocumentView::createDependentResources(const D2D1_SIZE_U& size)
+{
+    std::cout << __PRETTY_FUNCTION__ << "\n";
+    renderTarget.Reset();
+
+    assert(d2dFactory->CreateHwndRenderTarget(
+                D2D1::RenderTargetProperties(),
+                D2D1::HwndRenderTargetProperties(window, size),
+                &renderTarget.ptr) == S_OK);
+
+    if (model != nullptr)
+    {
+        model->CreateObjects(renderTarget);
+    }
+}
+
+void CDocumentView::resize(int width, int height)
+{
+    if (renderTarget != nullptr)
+    {
+        assert(renderTarget->Resize(D2D1_SIZE_U{width, height}) == S_OK);
+    }
 }

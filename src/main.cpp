@@ -10,9 +10,8 @@
 #define _UNICODE
 #endif
 
-#include <d2d1.h>
-
 #include "DocumentView.h"
+#include "DocumentModel.h"
 
 static constexpr wchar_t* DocumentViewClassName = L"DIRECT2DDOCUMENTVIEW";
 
@@ -26,6 +25,7 @@ LRESULT WndProc(HWND window, UINT msg, WPARAM wParam, LPARAM lParam)
         assert(documentView != nullptr);
         SetWindowLongPtr(window, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(documentView));
         documentView->AttachHandle(window);
+        documentView->SetModel(new CDocumentModel());
     }
     else
     {
@@ -41,9 +41,13 @@ LRESULT WndProc(HWND window, UINT msg, WPARAM wParam, LPARAM lParam)
 
 int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR lpCmdLine, int nCmdShow)
 {
+    HeapSetInformation(NULL, HeapEnableTerminationOnCorruption, NULL, 0);
+
+    assert(CoInitializeEx(NULL, COINIT_MULTITHREADED) == S_OK);
+
     WNDCLASSEX viewClass;
     viewClass.cbSize = sizeof(WNDCLASSEX);
-    viewClass.style = CS_VREDRAW | CS_HREDRAW | CS_CLASSDC;
+    viewClass.style = CS_VREDRAW | CS_HREDRAW;
     viewClass.lpfnWndProc = WndProc;
     viewClass.cbClsExtra = 0;
     viewClass.cbWndExtra = 0;
@@ -69,8 +73,8 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR lpCmdLin
                 WS_OVERLAPPEDWINDOW | WS_HSCROLL | WS_VSCROLL, // DEF STYLES
                 0, // X
                 0, // Y
-                300, // W
-                400, // H
+                600, // W
+                800, // H
                 NULL, // PARENT
                 NULL, // MENU
                 hInstance, // INSTANCE
@@ -89,6 +93,8 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR lpCmdLin
         TranslateMessage(&msg);
         DispatchMessage(&msg);
     }
+
+    CoUninitialize();
 
     return 0;
 }

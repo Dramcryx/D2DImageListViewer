@@ -1,10 +1,11 @@
 #ifndef INTERFACE_DOCUMENT_PAGE_H
 #define INTERFACE_DOCUMENT_PAGE_H
 
-#include <windows.h>
+#include <windef.h>
 
 struct IDocumentModel;
 
+struct IWICImagingFactory;
 struct ID2D1Bitmap;
 
 struct IDocumentPage
@@ -15,12 +16,12 @@ struct IDocumentPage
         FAILED
     };
 
-    virtual ~IDocumentPage() = 0;
+    virtual ~IDocumentPage() = default;
 
     virtual TPageState GetPageState() const = 0;
-    virtual RECT GetPageRect() const = 0;
+    virtual SIZE GetPageSize() const = 0;
 
-    virtual ID2D1Bitmap& GetPageBitmap() const = 0;
+    virtual ID2D1Bitmap* GetPageBitmap() const = 0;
 };
 
 #endif

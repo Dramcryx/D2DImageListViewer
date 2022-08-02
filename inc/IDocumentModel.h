@@ -5,6 +5,7 @@
 
 /// Fordward declarations ///
 class IDWriteTextFormat;
+class ID2D1RenderTarget;
 /////////////////////////////
 
 /// @brief Коллбэк, посылаемый моделью
@@ -28,12 +29,14 @@ enum class TDocumentModelRoles
 /// Не подразумевает прямого доступа к страницам, только через роли
 struct IDocumentModel : public IDocumentModelCallback
 {
-    virtual ~IDocumentModel() = 0;
+    virtual ~IDocumentModel() = default;
+
+    virtual bool CreateObjects(ID2D1RenderTarget* renderTarget) = 0;
 
     virtual int GetPageCount() const = 0;
 
-    virtual void* GetData(int index, TDocumentModelRoles role) const;
-    virtual void SetData(int index, TDocumentModelRoles role);
+    virtual void* GetData(int index, TDocumentModelRoles role) const = 0;
+    virtual void SetData(int index, TDocumentModelRoles role) = 0;
 };
 
 

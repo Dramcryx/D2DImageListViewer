@@ -7,6 +7,7 @@
 #include <d2d1.h>
 #include <d2d1_1.h>
 
+#include "ComPtrOwner.h"
 #include "DocumentModel.h"
 
 class CDocumentView {
@@ -23,11 +24,19 @@ public:
 
 protected:
     virtual void OnDraw(WPARAM, LPARAM);
+    virtual void OnSize(WPARAM, LPARAM);
+    virtual void OnSizing(WPARAM, LPARAM);
+    virtual void OnScroll(WPARAM, LPARAM);
 
 private:
     HWND window = NULL;
-    ID2D1Factory* d2dFactory = nullptr;
+    CComPtrOwner<ID2D1Factory> d2dFactory = nullptr;
+    CComPtrOwner<ID2D1HwndRenderTarget> renderTarget = nullptr;
     std::unique_ptr<CDocumentModel> model = nullptr;
+
+    void createDependentResources(const D2D1_SIZE_U& size);
+
+    void resize(int width, int height);
 };
 
 
