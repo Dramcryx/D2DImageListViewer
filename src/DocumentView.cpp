@@ -101,14 +101,15 @@ void CDocumentView::OnDraw(WPARAM, LPARAM)
                     1.0,
                     D2D1_BITMAP_INTERPOLATION_MODE_NEAREST_NEIGHBOR,
                     NULL);
-                pageOffset += d2dScaledRect.bottom;
+                pageOffset += d2dScaledRect.bottom - d2dScaledRect.top;
             }
         }
-        SetScrollRange(window, SB_VERT, 0, pageOffset, false);
-        SetScrollRange(window, SB_HORZ, 0, 0, false);
+        surfaceState.vScrollPos = std::clamp(surfaceState.vScrollPos, (int)size.height - (int)pageOffset, 0);
+        surfaceState.zoom = std::max(surfaceState.zoom, 0.0);
     }
-
-
+    auto zoom  = D2D1::Matrix3x2F::Identity();//D2D1::Matrix3x2F::Scale(surfaceState.zoom, surfaceState.zoom);
+    auto scroll = D2D1::Matrix3x2F::Translation(surfaceState.hScrollPos, surfaceState.vScrollPos);
+    renderTarget->SetTransform(scroll * zoom);
     renderTarget->EndDraw();
 }
 
@@ -131,11 +132,14 @@ void CDocumentView::OnSizing(WPARAM, LPARAM lParam)
 
 void CDocumentView::OnScroll(WPARAM wParam, LPARAM)
 {
-    std::cout << __PRETTY_FUNCTION__ << "\n";
-    std::cout << GET_WHEEL_DELTA_WPARAM(wParam) << "\n";
-    
-    // D2D1_MATRIX_3X2_F matrix;
-    // auto transform = renderTarget->GetTransform()
+    int mouseDelta = GET_WHEEL_DELTA_WPARAM(wParam);
+    if (LOWORD(wParam) == MK_CONTROL) {
+        std::cout << "IS CONTROL\n";
+        surfaceState.zoom += (double)(mouseDelta) / 100;
+    } else {
+        std::cout << "NOT CONTROL\n";
+        surfaceState.vScrollPos += mouseDelta;
+    }
 }
 
 void CDocumentView::createDependentResources(const D2D1_SIZE_U& size)

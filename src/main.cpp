@@ -4,6 +4,7 @@
 #include <cassert>
 
 #include <windows.h>
+#include <winuser.rh>
 
 #ifndef UNICODE
 #define UNICODE
@@ -53,7 +54,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR lpCmdLin
     viewClass.cbWndExtra = 0;
     viewClass.hInstance = hInstance;
     viewClass.hIcon = nullptr;
-    //viewClass.hCursor = GetDefualtCy
+    viewClass.hCursor = (HCURSOR) LoadImage(NULL, MAKEINTRESOURCE(OCR_NORMAL), IMAGE_CURSOR, 0, 0, LR_SHARED);
     viewClass.hbrBackground = (HBRUSH) GetStockObject( LTGRAY_BRUSH );
     viewClass.lpszMenuName = nullptr;
     viewClass.lpszClassName = DocumentViewClassName;
@@ -70,7 +71,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR lpCmdLin
     if ((viewHandle = CreateWindowEx(WS_EX_ACCEPTFILES, // EX STYLES
                 DocumentViewClassName, // CLASS NAME
                 L"Documents viewer", // WINDOW NAME
-                WS_OVERLAPPEDWINDOW | WS_HSCROLL | WS_VSCROLL, // DEF STYLES
+                WS_OVERLAPPEDWINDOW, // DEF STYLES
                 0, // X
                 0, // Y
                 600, // W

@@ -34,6 +34,12 @@ private:
     CComPtrOwner<ID2D1HwndRenderTarget> renderTarget = nullptr;
     std::unique_ptr<CDocumentModel> model = nullptr;
 
+    struct CSurfaceState {
+        int vScrollPos = 0;
+        int hScrollPos = 0;
+        double zoom = 1.0;
+    } surfaceState;
+
     void createDependentResources(const D2D1_SIZE_U& size);
 
     void resize(int width, int height);
