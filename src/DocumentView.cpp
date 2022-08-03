@@ -3,15 +3,95 @@
 #include <cassert>
 #include <functional>
 #include <iostream>
+#include <optional>
+#include <stdexcept>
 #include <unordered_map>
 
 #include <d2d1.h>
+
+#include <winuser.rh>
 
 namespace{
 std::ostream& operator<<(std::ostream& out, const D2D1_RECT_F& rect)
 {
     return out << rect.left << ' ' << rect.top << ' ' << rect.right << ' ' << rect.bottom << std::endl;
 }
+
+constexpr wchar_t* DocumentViewClassName = L"DIRECT2DDOCUMENTVIEW";
+
+LRESULT DocumentViewProc(HWND window, UINT msg, WPARAM wParam, LPARAM lParam)
+{
+    CDocumentView* documentView = nullptr;
+    if (msg == WM_CREATE)
+    {
+        auto createStruct = reinterpret_cast<LPCREATESTRUCT>(lParam);
+        documentView = reinterpret_cast<CDocumentView*>(createStruct->lpCreateParams);
+        assert(documentView != nullptr);
+        SetWindowLongPtr(window, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(documentView));
+        documentView->AttachHandle(window);
+        documentView->SetModel(new CDocumentModel());
+    }
+    else
+    {
+        documentView = reinterpret_cast<CDocumentView*>(GetWindowLongPtr(window, GWLP_USERDATA));
+        if (documentView != nullptr && documentView->HandleMessage(msg, wParam, lParam))
+        {
+            return 0;
+        }
+    }
+    
+    return DefWindowProc(window, msg, wParam, lParam);
+}
+
+void RegisterDocumentViewClass()
+{
+    static std::optional<WNDCLASSEX> viewClass;
+    if (!viewClass.has_value())
+    {
+        viewClass = WNDCLASSEX{};
+        auto& ref = *viewClass;
+        ref.cbSize = sizeof(WNDCLASSEX);
+        ref.style = CS_VREDRAW | CS_HREDRAW;
+        ref.lpfnWndProc = DocumentViewProc;
+        ref.cbClsExtra = 0;
+        ref.cbWndExtra = 0;
+        ref.hInstance = GetModuleHandle(NULL);
+        ref.hIcon = nullptr;
+        ref.hCursor = (HCURSOR) LoadImage(NULL, MAKEINTRESOURCE(OCR_NORMAL), IMAGE_CURSOR, 0, 0, LR_SHARED);
+        ref.hbrBackground = (HBRUSH) GetStockObject( LTGRAY_BRUSH );
+        ref.lpszMenuName = nullptr;
+        ref.lpszClassName = DocumentViewClassName;
+        ref.hIconSm = nullptr;
+
+        if (RegisterClassEx(&ref) == 0)
+        {
+            throw std::runtime_error("CDocumentView::CDocumentView; RegisterClassEx");
+        }
+    }
+}
+
+}
+
+CDocumentView::CDocumentView()
+{
+    RegisterDocumentViewClass();
+    if (CreateWindowEx(WS_EX_ACCEPTFILES, // EX STYLES
+                DocumentViewClassName, // CLASS NAME
+                L"Documents viewer", // WINDOW NAME
+                WS_OVERLAPPEDWINDOW, // DEF STYLES
+                0, // X
+                0, // Y
+                600, // W
+                800, // H
+                NULL, // PARENT
+                NULL, // MENU
+                GetModuleHandle(NULL), // INSTANCE
+                this) // ADDITIONAL PARAMS
+                    == nullptr)
+    {
+        throw std::runtime_error("CDocumentView::CDocumentView; CreateWindowEx");
+    }
+
 }
 
 CDocumentView::~CDocumentView() = default;
@@ -23,6 +103,11 @@ void CDocumentView::AttachHandle(HWND _window)
     d2dFactory.Reset();
 
     assert(D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, &d2dFactory.ptr) == S_OK);
+}
+
+void CDocumentView::Show()
+{
+    ShowWindow(window, SW_NORMAL);
 }
 
 void CDocumentView::SetModel(CDocumentModel* _model)
@@ -69,6 +154,11 @@ void CDocumentView::OnDraw(WPARAM, LPARAM)
                 D2D1::ColorF(D2D1::ColorF::Goldenrod),
                 &brush.ptr) == S_OK);
 
+    CComPtrOwner<ID2D1SolidColorBrush> scrollBrush = nullptr;
+    assert(renderTarget->CreateSolidColorBrush(
+                D2D1::ColorF(D2D1::ColorF::Gray),
+                &scrollBrush.ptr) == S_OK);
+
     D2D1_RECT_F drawRect{rect.left, rect.top, rect.right, rect.bottom};
 
     resize(size.width, size.height);
@@ -104,8 +194,20 @@ void CDocumentView::OnDraw(WPARAM, LPARAM)
                 pageOffset += d2dScaledRect.bottom - d2dScaledRect.top;
             }
         }
-        surfaceState.vScrollPos = std::clamp(surfaceState.vScrollPos, (int)size.height - (int)pageOffset, 0);
+        surfaceState.vScrollPos = std::clamp(surfaceState.vScrollPos.load(), (int)size.height - (int)pageOffset, 0);
         surfaceState.zoom = std::max(surfaceState.zoom, 0.0);
+
+        // scrollRect
+        {
+            int totalSurfaceHeight = pageOffset;
+            int scrollHeight = size.height / (double)(totalSurfaceHeight) * size.height;
+            const int scrollWidth = 5;
+            int scrollTop = -surfaceState.vScrollPos - (double)(surfaceState.vScrollPos) / (totalSurfaceHeight) * size.height;
+
+            D2D1_RECT_F scrollRect{drawRect.right - scrollWidth - 2, scrollTop, drawRect.right - 2, scrollTop + scrollHeight};
+            D2D1_ROUNDED_RECT scrollDrawRect{scrollRect, 4.0, 4.0};
+            renderTarget->FillRoundedRectangle(scrollDrawRect, scrollBrush);
+        }
     }
     auto zoom  = D2D1::Matrix3x2F::Identity();//D2D1::Matrix3x2F::Scale(surfaceState.zoom, surfaceState.zoom);
     auto scroll = D2D1::Matrix3x2F::Translation(surfaceState.hScrollPos, surfaceState.vScrollPos);
@@ -134,10 +236,8 @@ void CDocumentView::OnScroll(WPARAM wParam, LPARAM)
 {
     int mouseDelta = GET_WHEEL_DELTA_WPARAM(wParam);
     if (LOWORD(wParam) == MK_CONTROL) {
-        std::cout << "IS CONTROL\n";
         surfaceState.zoom += (double)(mouseDelta) / 100;
     } else {
-        std::cout << "NOT CONTROL\n";
         surfaceState.vScrollPos += mouseDelta;
     }
 }

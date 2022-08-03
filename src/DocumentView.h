@@ -1,6 +1,7 @@
 #ifndef DOCUMENT_VIEW_H
 #define DOCUMENT_VIEW_H
 
+#include <atomic>
 #include <memory>
 
 #include <windows.h>
@@ -12,10 +13,12 @@
 
 class CDocumentView {
 public:
-    CDocumentView() = default;
+    CDocumentView();
     ~CDocumentView();
 
     void AttachHandle(HWND window);
+    operator HWND() { return window; }
+    void Show();
 
     void SetModel(CDocumentModel* model);
     CDocumentModel* GetModel() const;
@@ -35,8 +38,8 @@ private:
     std::unique_ptr<CDocumentModel> model = nullptr;
 
     struct CSurfaceState {
-        int vScrollPos = 0;
-        int hScrollPos = 0;
+        std::atomic_int vScrollPos = 0;
+        std::atomic_int hScrollPos = 0;
         double zoom = 1.0;
     } surfaceState;
 
