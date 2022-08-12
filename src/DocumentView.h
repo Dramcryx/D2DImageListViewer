@@ -38,8 +38,8 @@ private:
     std::unique_ptr<CDocumentModel> model = nullptr;
 
     struct CSurfaceState {
-        std::atomic_int vScrollPos = 0;
-        std::atomic_int hScrollPos = 0;
+        double vScrollPos = 0.0;
+        double hScrollPos = 0.0;
         double zoom = 1.0;
     } surfaceState;
 
