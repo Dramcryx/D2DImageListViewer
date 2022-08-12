@@ -24,12 +24,12 @@ struct CComPtrOwner
         return ptr;
     }
 
-    void Reset()
+    void Reset(T* newPtr = nullptr)
     {
         if (ptr != nullptr)
         {
             ptr->Release();
-            ptr = nullptr;
+            ptr = newPtr;
         }
     }
 };

@@ -44,11 +44,12 @@ bool CDocumentModel::CreateObjects(ID2D1RenderTarget* renderTarget)
     for (auto file : files) {
         pages.push_back(new CDocumentPage{file, wicFactory, renderTarget});        
     }
+    return true;
 }
 
 int CDocumentModel::GetPageCount() const
 {
-    pages.size();
+    return pages.size();
 }
 
 void* CDocumentModel::GetData(int index, TDocumentModelRoles role) const

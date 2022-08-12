@@ -90,6 +90,7 @@ struct CDocumentPagesLayout {
 CDocumentPagesLayout createPagesLayout(const std::vector<IDocumentPage*>& pages, const CDocumentPagesLayoutParams& params)
 {
     CDocumentPagesLayout retval;
+    const float pageMargin = float(params.pageMargin);
 
     switch (params.strategy)
     {
@@ -99,9 +100,19 @@ CDocumentPagesLayout createPagesLayout(const std::vector<IDocumentPage*>& pages,
         float maxWidth = 0.0;
         for (const auto& page : pages) {
             auto pageSize = page->GetPageSize();
-            retval.pageRects.emplace_back(page, D2D1_RECT_F{0.0, topOffset, (float)pageSize.cx, topOffset + (float)pageSize.cy});
-            maxWidth = std::max(maxWidth, (float)pageSize.cx);
-            topOffset += pageSize.cy;
+
+            retval.pageRects.emplace_back(
+                page,
+                D2D1_RECT_F{
+                    pageMargin,
+                    topOffset + pageMargin,
+                    (float)pageSize.cx + pageMargin,
+                    topOffset + (float)pageSize.cy + pageMargin
+                }
+            );
+
+            maxWidth = std::max(maxWidth, (float)pageSize.cx + pageMargin * 2);
+            topOffset += pageSize.cy + pageMargin * 2;
             topOffset += params.pagesSpacing;
         }
         retval.totalSurfaceSize = {maxWidth, topOffset - params.pagesSpacing};
@@ -196,20 +207,6 @@ void CDocumentView::OnDraw(WPARAM, LPARAM)
         createDependentResources(size);
     }
 
-    static CComPtrOwner<ID2D1SolidColorBrush> brush = nullptr;
-    if (brush.ptr == nullptr) {
-        assert(renderTarget->CreateSolidColorBrush(
-                    D2D1::ColorF(D2D1::ColorF::Goldenrod),
-                    &brush.ptr) == S_OK);
-    }
-
-    static CComPtrOwner<ID2D1SolidColorBrush> scrollBrush = nullptr;
-    if (scrollBrush.ptr == nullptr) {
-        assert(renderTarget->CreateSolidColorBrush(
-                    D2D1::ColorF(D2D1::ColorF::Gray),
-                    &scrollBrush.ptr) == S_OK);
-    }
-
     D2D1_RECT_F drawRect{rect.left, rect.top, rect.right, rect.bottom};
 
     D2D1_SIZE_F sizeF{float(size.width), float(size.height)};
@@ -220,6 +217,7 @@ void CDocumentView::OnDraw(WPARAM, LPARAM)
     }
     
     renderTarget->BeginDraw();
+    renderTarget->Clear(surfaceProps.backgroundColor->GetColor());
 
     if (surfaceProps.model != nullptr)
     {
@@ -228,13 +226,14 @@ void CDocumentView::OnDraw(WPARAM, LPARAM)
         {
             pages.push_back(reinterpret_cast<IDocumentPage*>(surfaceProps.model->GetData(i, TDocumentModelRoles::PageRole)));
         }
-        auto pagesLayout = createPagesLayout(pages, CDocumentPagesLayoutParams{
-            0,
-            8,
-            CDocumentPagesLayoutParams::AlignLeft
-        });
-    
-        renderTarget->FillRectangle(D2D1_RECT_F{0, 0, std::max((float)size.width, pagesLayout.totalSurfaceSize.width), pagesLayout.totalSurfaceSize.height}, brush);
+        auto pagesLayout = createPagesLayout(
+            pages,
+            CDocumentPagesLayoutParams{
+                5,
+                -5,
+                CDocumentPagesLayoutParams::AlignLeft
+            }
+        );
     
         static CComPtrOwner<ID2D1Layer> pagesLayer{nullptr};
         if (pagesLayer.ptr == nullptr) {
@@ -259,8 +258,9 @@ void CDocumentView::OnDraw(WPARAM, LPARAM)
                 1.0,
                 D2D1_BITMAP_INTERPOLATION_MODE_NEAREST_NEIGHBOR,
                 NULL);
-
+            renderTarget->DrawRectangle(pageLayout.second, surfaceProps.pageFrameColor, 1.0, NULL);
         }
+
         renderTarget->PopLayer();
 
         int totalSurfaceWidth = pagesLayout.totalSurfaceSize.width;
@@ -286,7 +286,7 @@ void CDocumentView::OnDraw(WPARAM, LPARAM)
 
             D2D1_RECT_F scrollRect{hScrollBarLeftPos + 2, hScrollBarTopPos - 2, hScrollBarLeftPos + hScrollBarWidth - 2, hScrollBarTopPos + hScrollHeight - 2};
             D2D1_ROUNDED_RECT scrollDrawRect{scrollRect, 4.0, 4.0};
-            renderTarget->FillRoundedRectangle(scrollDrawRect, scrollBrush);
+            renderTarget->FillRoundedRectangle(scrollDrawRect, surfaceProps.scrollColor);
         }
         // scrollRect
         {
@@ -303,12 +303,8 @@ void CDocumentView::OnDraw(WPARAM, LPARAM)
 
             D2D1_RECT_F scrollRect{vScrollBarLeftPos - 2, vScrollBarTopPos + 2, vScrollBarLeftPos + vScrollWidth - 2, vScrollBarTopPos + vScrollBarHeight - 2};
             D2D1_ROUNDED_RECT scrollDrawRect{scrollRect, 4.0, 4.0};
-            renderTarget->FillRoundedRectangle(scrollDrawRect, scrollBrush);
+            renderTarget->FillRoundedRectangle(scrollDrawRect, surfaceProps.scrollColor);
         }
-    }
-    else
-    {
-        renderTarget->FillRectangle(&drawRect, brush);
     }
     
     renderTarget->EndDraw();
@@ -350,13 +346,27 @@ void CDocumentView::OnScroll(WPARAM wParam, LPARAM lParam)
 
 void CDocumentView::createDependentResources(const D2D1_SIZE_U& size)
 {
-    std::cout << __PRETTY_FUNCTION__ << "\n";
     surfaceProps.renderTarget.Reset();
+    surfaceProps.backgroundColor.Reset();
+    surfaceProps.pageFrameColor.Reset();
+    surfaceProps.scrollColor.Reset();
 
     assert(d2dFactory->CreateHwndRenderTarget(
                 D2D1::RenderTargetProperties(),
                 D2D1::HwndRenderTargetProperties(window, size),
                 &surfaceProps.renderTarget.ptr) == S_OK);
+
+    assert(surfaceProps.renderTarget->CreateSolidColorBrush(
+                D2D1::ColorF(D2D1::ColorF::WhiteSmoke),
+                &surfaceProps.backgroundColor.ptr) == S_OK);
+
+    assert(surfaceProps.renderTarget->CreateSolidColorBrush(
+                D2D1::ColorF(D2D1::ColorF::Black),
+                &surfaceProps.pageFrameColor.ptr) == S_OK);
+
+    assert(surfaceProps.renderTarget->CreateSolidColorBrush(
+                D2D1::ColorF(D2D1::ColorF::Gray),
+                &surfaceProps.scrollColor.ptr) == S_OK);
 
     if (surfaceProps.model != nullptr)
     {
