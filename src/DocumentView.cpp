@@ -170,7 +170,7 @@ bool CDocumentView::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
 {
     static std::unordered_map<UINT, std::function<void(CDocumentView*, WPARAM, LPARAM)>> messageHandlers{
         {WM_PAINT, &CDocumentView::OnDraw},
-        {WM_ERASEBKGND, &CDocumentView::OnDraw},
+        //{WM_ERASEBKGND, &CDocumentView::OnDraw},
         {WM_SIZE, &CDocumentView::OnSize},
         //{WM_SIZING, &CDocumentView::OnSizing}
         {WM_MOUSEWHEEL, &CDocumentView::OnScroll},
@@ -258,45 +258,44 @@ void CDocumentView::OnDraw(WPARAM, LPARAM)
         renderTarget->PopLayer();
 
         int totalSurfaceWidth = pagesLayout.totalSurfaceSize.width;
+        int visibleSurfaceWidth = size.width;
         int totalSurfaceHeight = pagesLayout.totalSurfaceSize.height;
+        int visibleSurfaceHeight = size.height;
 
         auto zoom  = D2D1::Matrix3x2F::Identity();//D2D1::Matrix3x2F::Scale(surfaceState.zoom, surfaceState.zoom);
         auto scroll = D2D1::Matrix3x2F::Translation(totalSurfaceWidth * surfaceState.hScrollPos, totalSurfaceHeight * surfaceState.vScrollPos);
         renderTarget->SetTransform(scroll * zoom);
-
         // scrollRect
         {
-            int visibleSurfaceWidth = size.width;
-
             double hVisibleToTotal = static_cast<double>(visibleSurfaceWidth) / static_cast<double>(totalSurfaceWidth);
 
             int hScrollBarWidth = visibleSurfaceWidth * hVisibleToTotal;
 
             surfaceState.hScrollPos = std::clamp(surfaceState.hScrollPos, -1.0 + hVisibleToTotal, 0.0);
 
-            int hScrollBarLeftPos = -(totalSurfaceWidth * surfaceState.hScrollPos + visibleSurfaceWidth * surfaceState.hScrollPos);
-
             const int hScrollHeight = 5;
 
-            D2D1_RECT_F scrollRect{hScrollBarLeftPos, drawRect.bottom - hScrollHeight - 2, hScrollBarLeftPos + hScrollBarWidth, drawRect.bottom - 2};
+            int hScrollBarTopPos = -(totalSurfaceHeight * surfaceState.vScrollPos) + visibleSurfaceHeight - hScrollHeight;
+            int hScrollBarLeftPos = -(totalSurfaceWidth * surfaceState.hScrollPos + visibleSurfaceWidth * surfaceState.hScrollPos);
+
+            D2D1_RECT_F scrollRect{hScrollBarLeftPos, hScrollBarTopPos - 2, hScrollBarLeftPos + hScrollBarWidth, hScrollBarTopPos + hScrollHeight};
             D2D1_ROUNDED_RECT scrollDrawRect{scrollRect, 4.0, 4.0};
             renderTarget->FillRoundedRectangle(scrollDrawRect, scrollBrush);
         }
         // scrollRect
         {
-            int visibleSurfaceHeight = size.height;
-
             double vVisibleToTotal = static_cast<double>(visibleSurfaceHeight) / static_cast<double>(totalSurfaceHeight);
 
             int vScrollBarHeight = visibleSurfaceHeight * vVisibleToTotal;
 
             surfaceState.vScrollPos = std::clamp(surfaceState.vScrollPos, -1.0 + vVisibleToTotal, 0.0);
 
-            int vScrollBarTopPos = -(totalSurfaceHeight * surfaceState.vScrollPos + visibleSurfaceHeight * surfaceState.vScrollPos);
-
             const int vScrollWidth = 5;
 
-            D2D1_RECT_F scrollRect{drawRect.right - vScrollWidth - 2, vScrollBarTopPos, drawRect.right - 2, vScrollBarTopPos + vScrollBarHeight};
+            int vScrollBarLeftPos = -(totalSurfaceWidth  * surfaceState.hScrollPos) + visibleSurfaceWidth - vScrollWidth;
+            int vScrollBarTopPos = -(totalSurfaceHeight * surfaceState.vScrollPos + visibleSurfaceHeight * surfaceState.vScrollPos);
+
+            D2D1_RECT_F scrollRect{vScrollBarLeftPos - 2, vScrollBarTopPos, vScrollBarLeftPos + vScrollWidth, vScrollBarTopPos + vScrollBarHeight};
             D2D1_ROUNDED_RECT scrollDrawRect{scrollRect, 4.0, 4.0};
             renderTarget->FillRoundedRectangle(scrollDrawRect, scrollBrush);
         }
