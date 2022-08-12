@@ -215,7 +215,7 @@ void CDocumentView::OnDraw(WPARAM, LPARAM)
     if (std::tie(sizeF.width, sizeF.height) != std::tie(currentSizeF.width, currentSizeF.height)) {
         resize(size.width, size.height);
     }
-    
+
     renderTarget->BeginDraw();
     renderTarget->Clear(surfaceProps.backgroundColor->GetColor());
 
@@ -226,6 +226,7 @@ void CDocumentView::OnDraw(WPARAM, LPARAM)
         {
             pages.push_back(reinterpret_cast<IDocumentPage*>(surfaceProps.model->GetData(i, TDocumentModelRoles::PageRole)));
         }
+
         auto pagesLayout = createPagesLayout(
             pages,
             CDocumentPagesLayoutParams{
@@ -234,24 +235,7 @@ void CDocumentView::OnDraw(WPARAM, LPARAM)
                 CDocumentPagesLayoutParams::AlignLeft
             }
         );
-    
-        static CComPtrOwner<ID2D1Layer> pagesLayer{nullptr};
-        if (pagesLayer.ptr == nullptr) {
-            assert(renderTarget->CreateLayer(&pagesLayer.ptr) == S_OK);
-        }
 
-        renderTarget->PushLayer(
-            D2D1::LayerParameters(
-                D2D1::InfiniteRect(),
-                NULL,
-                D2D1_ANTIALIAS_MODE_PER_PRIMITIVE,
-                D2D1::IdentityMatrix(),
-                1.0,
-                NULL,
-                D2D1_LAYER_OPTIONS_NONE
-            ),
-            pagesLayer
-        );
         for (auto& pageLayout : pagesLayout.pageRects) {
             renderTarget->DrawBitmap(pageLayout.first->GetPageBitmap(),
                 pageLayout.second,
@@ -260,8 +244,6 @@ void CDocumentView::OnDraw(WPARAM, LPARAM)
                 NULL);
             renderTarget->DrawRectangle(pageLayout.second, surfaceProps.pageFrameColor, 1.0, NULL);
         }
-
-        renderTarget->PopLayer();
 
         int totalSurfaceWidth = pagesLayout.totalSurfaceSize.width;
         int visibleSurfaceWidth = size.width;
@@ -367,6 +349,7 @@ void CDocumentView::createDependentResources(const D2D1_SIZE_U& size)
     assert(surfaceProps.renderTarget->CreateSolidColorBrush(
                 D2D1::ColorF(D2D1::ColorF::Gray),
                 &surfaceProps.scrollColor.ptr) == S_OK);
+    surfaceProps.scrollColor->SetOpacity(0.5f);
 
     if (surfaceProps.model != nullptr)
     {
