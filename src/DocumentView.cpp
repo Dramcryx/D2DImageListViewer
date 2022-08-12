@@ -104,7 +104,7 @@ CDocumentPagesLayout createPagesLayout(const std::vector<IDocumentPage*>& pages,
             topOffset += pageSize.cy;
             topOffset += params.pagesSpacing;
         }
-        retval.totalSurfaceSize = {maxWidth, topOffset};
+        retval.totalSurfaceSize = {maxWidth, topOffset - params.pagesSpacing};
         break;
     }
     case CDocumentPagesLayoutParams::AlignRight:
@@ -158,12 +158,12 @@ void CDocumentView::Show()
 
 void CDocumentView::SetModel(CDocumentModel* _model)
 {
-    this->model.reset(_model);
+    this->surfaceProps.model.reset(_model);
 }
 
 CDocumentModel* CDocumentView::GetModel() const
 {
-    return this->model.get();
+    return this->surfaceProps.model.get();
 }
 
 bool CDocumentView::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
@@ -191,6 +191,7 @@ void CDocumentView::OnDraw(WPARAM, LPARAM)
     auto clientRect = GetClientRect(window, &rect);
     auto size = D2D1::SizeU(rect.right - rect.left, rect.bottom - rect.top);
 
+    auto& renderTarget = surfaceProps.renderTarget;
     if (renderTarget == nullptr) {
         createDependentResources(size);
     }
@@ -211,16 +212,21 @@ void CDocumentView::OnDraw(WPARAM, LPARAM)
 
     D2D1_RECT_F drawRect{rect.left, rect.top, rect.right, rect.bottom};
 
-    resize(size.width, size.height);
+    D2D1_SIZE_F sizeF{float(size.width), float(size.height)};
+    auto currentSizeF = renderTarget->GetSize();
+
+    if (std::tie(sizeF.width, sizeF.height) != std::tie(currentSizeF.width, currentSizeF.height)) {
+        resize(size.width, size.height);
+    }
     
     renderTarget->BeginDraw();
 
-    if (model != nullptr)
+    if (surfaceProps.model != nullptr)
     {
         std::vector<IDocumentPage*> pages;
-        for(int i = 0; i < model->GetPageCount(); ++i)
+        for(int i = 0; i < surfaceProps.model->GetPageCount(); ++i)
         {
-            pages.push_back(reinterpret_cast<IDocumentPage*>(model->GetData(i, TDocumentModelRoles::PageRole)));
+            pages.push_back(reinterpret_cast<IDocumentPage*>(surfaceProps.model->GetData(i, TDocumentModelRoles::PageRole)));
         }
         auto pagesLayout = createPagesLayout(pages, CDocumentPagesLayoutParams{
             0,
@@ -278,7 +284,7 @@ void CDocumentView::OnDraw(WPARAM, LPARAM)
             int hScrollBarTopPos = -(totalSurfaceHeight * surfaceState.vScrollPos) + visibleSurfaceHeight - hScrollHeight;
             int hScrollBarLeftPos = -(totalSurfaceWidth * surfaceState.hScrollPos + visibleSurfaceWidth * surfaceState.hScrollPos);
 
-            D2D1_RECT_F scrollRect{hScrollBarLeftPos, hScrollBarTopPos - 2, hScrollBarLeftPos + hScrollBarWidth, hScrollBarTopPos + hScrollHeight};
+            D2D1_RECT_F scrollRect{hScrollBarLeftPos + 2, hScrollBarTopPos - 2, hScrollBarLeftPos + hScrollBarWidth - 2, hScrollBarTopPos + hScrollHeight - 2};
             D2D1_ROUNDED_RECT scrollDrawRect{scrollRect, 4.0, 4.0};
             renderTarget->FillRoundedRectangle(scrollDrawRect, scrollBrush);
         }
@@ -295,7 +301,7 @@ void CDocumentView::OnDraw(WPARAM, LPARAM)
             int vScrollBarLeftPos = -(totalSurfaceWidth  * surfaceState.hScrollPos) + visibleSurfaceWidth - vScrollWidth;
             int vScrollBarTopPos = -(totalSurfaceHeight * surfaceState.vScrollPos + visibleSurfaceHeight * surfaceState.vScrollPos);
 
-            D2D1_RECT_F scrollRect{vScrollBarLeftPos - 2, vScrollBarTopPos, vScrollBarLeftPos + vScrollWidth, vScrollBarTopPos + vScrollBarHeight};
+            D2D1_RECT_F scrollRect{vScrollBarLeftPos - 2, vScrollBarTopPos + 2, vScrollBarLeftPos + vScrollWidth - 2, vScrollBarTopPos + vScrollBarHeight - 2};
             D2D1_ROUNDED_RECT scrollDrawRect{scrollRect, 4.0, 4.0};
             renderTarget->FillRoundedRectangle(scrollDrawRect, scrollBrush);
         }
@@ -334,10 +340,10 @@ void CDocumentView::OnScroll(WPARAM wParam, LPARAM lParam)
         POINT screenPoint{LOWORD(lParam), HIWORD(lParam)};
         ScreenToClient(window, &screenPoint);
 
-        if (renderTarget != nullptr && renderTarget->GetSize().height - screenPoint.y < 6) {
-            surfaceState.hScrollPos +=  mouseDelta > 0 ? 0.1 : -0.1;
+        if (surfaceProps.renderTarget != nullptr && surfaceProps.renderTarget->GetSize().height - screenPoint.y < 10) {
+            surfaceState.hScrollPos +=  mouseDelta > 0 ? 0.05 : -0.05;
         } else {
-            surfaceState.vScrollPos += mouseDelta > 0 ? 0.1 : -0.1;
+            surfaceState.vScrollPos += mouseDelta > 0 ? 0.05 : -0.05;
         }
     }
 }
@@ -345,23 +351,23 @@ void CDocumentView::OnScroll(WPARAM wParam, LPARAM lParam)
 void CDocumentView::createDependentResources(const D2D1_SIZE_U& size)
 {
     std::cout << __PRETTY_FUNCTION__ << "\n";
-    renderTarget.Reset();
+    surfaceProps.renderTarget.Reset();
 
     assert(d2dFactory->CreateHwndRenderTarget(
                 D2D1::RenderTargetProperties(),
                 D2D1::HwndRenderTargetProperties(window, size),
-                &renderTarget.ptr) == S_OK);
+                &surfaceProps.renderTarget.ptr) == S_OK);
 
-    if (model != nullptr)
+    if (surfaceProps.model != nullptr)
     {
-        model->CreateObjects(renderTarget);
+        surfaceProps.model->CreateObjects(surfaceProps.renderTarget);
     }
 }
 
 void CDocumentView::resize(int width, int height)
 {
-    if (renderTarget != nullptr)
+    if (surfaceProps.renderTarget != nullptr)
     {
-        assert(renderTarget->Resize(D2D1_SIZE_U{width, height}) == S_OK);
+        assert(surfaceProps.renderTarget->Resize(D2D1_SIZE_U{width, height}) == S_OK);
     }
 }

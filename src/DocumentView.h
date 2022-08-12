@@ -34,8 +34,14 @@ protected:
 private:
     HWND window = NULL;
     CComPtrOwner<ID2D1Factory> d2dFactory = nullptr;
-    CComPtrOwner<ID2D1HwndRenderTarget> renderTarget = nullptr;
-    std::unique_ptr<CDocumentModel> model = nullptr;
+
+    struct CSurfaceProperties {
+        CComPtrOwner<ID2D1HwndRenderTarget> renderTarget = nullptr;
+        std::unique_ptr<CDocumentModel> model = nullptr;
+        CComPtrOwner<ID2D1SolidColorBrush> backgroundColor = nullptr;
+        CComPtrOwner<ID2D1SolidColorBrush> pageFrameColor = nullptr;
+        CComPtrOwner<ID2D1SolidColorBrush> scrollColor = nullptr;
+    } surfaceProps;
 
     struct CSurfaceState {
         double vScrollPos = 0.0;
