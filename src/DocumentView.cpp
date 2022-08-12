@@ -228,7 +228,7 @@ void CDocumentView::OnDraw(WPARAM, LPARAM)
             CDocumentPagesLayoutParams::AlignLeft
         });
     
-        renderTarget->FillRectangle(D2D1_RECT_F{0, 0, size.width, pagesLayout.totalSurfaceSize.height}, brush);
+        renderTarget->FillRectangle(D2D1_RECT_F{0, 0, std::max((float)size.width, pagesLayout.totalSurfaceSize.width), pagesLayout.totalSurfaceSize.height}, brush);
     
         static CComPtrOwner<ID2D1Layer> pagesLayer{nullptr};
         if (pagesLayer.ptr == nullptr) {
@@ -257,8 +257,31 @@ void CDocumentView::OnDraw(WPARAM, LPARAM)
         }
         renderTarget->PopLayer();
 
-
+        int totalSurfaceWidth = pagesLayout.totalSurfaceSize.width;
         int totalSurfaceHeight = pagesLayout.totalSurfaceSize.height;
+
+        auto zoom  = D2D1::Matrix3x2F::Identity();//D2D1::Matrix3x2F::Scale(surfaceState.zoom, surfaceState.zoom);
+        auto scroll = D2D1::Matrix3x2F::Translation(totalSurfaceWidth * surfaceState.hScrollPos, totalSurfaceHeight * surfaceState.vScrollPos);
+        renderTarget->SetTransform(scroll * zoom);
+
+        // scrollRect
+        {
+            int visibleSurfaceWidth = size.width;
+
+            double hVisibleToTotal = static_cast<double>(visibleSurfaceWidth) / static_cast<double>(totalSurfaceWidth);
+
+            int hScrollBarWidth = visibleSurfaceWidth * hVisibleToTotal;
+
+            surfaceState.hScrollPos = std::clamp(surfaceState.hScrollPos, -1.0 + hVisibleToTotal, 0.0);
+
+            int hScrollBarLeftPos = -(totalSurfaceWidth * surfaceState.hScrollPos + visibleSurfaceWidth * surfaceState.hScrollPos);
+
+            const int hScrollHeight = 5;
+
+            D2D1_RECT_F scrollRect{hScrollBarLeftPos, drawRect.bottom - hScrollHeight - 2, hScrollBarLeftPos + hScrollBarWidth, drawRect.bottom - 2};
+            D2D1_ROUNDED_RECT scrollDrawRect{scrollRect, 4.0, 4.0};
+            renderTarget->FillRoundedRectangle(scrollDrawRect, scrollBrush);
+        }
         // scrollRect
         {
             int visibleSurfaceHeight = size.height;
@@ -277,10 +300,6 @@ void CDocumentView::OnDraw(WPARAM, LPARAM)
             D2D1_ROUNDED_RECT scrollDrawRect{scrollRect, 4.0, 4.0};
             renderTarget->FillRoundedRectangle(scrollDrawRect, scrollBrush);
         }
-        std::cout << "surfaceState.vScrollPos:" << surfaceState.vScrollPos << "\n";
-        auto zoom  = D2D1::Matrix3x2F::Identity();//D2D1::Matrix3x2F::Scale(surfaceState.zoom, surfaceState.zoom);
-        auto scroll = D2D1::Matrix3x2F::Translation(surfaceState.hScrollPos, totalSurfaceHeight * surfaceState.vScrollPos);
-        renderTarget->SetTransform(scroll * zoom);
     }
     else
     {
@@ -307,13 +326,20 @@ void CDocumentView::OnSizing(WPARAM, LPARAM lParam)
     resize(newWidth, newHeight);
 }
 
-void CDocumentView::OnScroll(WPARAM wParam, LPARAM)
+void CDocumentView::OnScroll(WPARAM wParam, LPARAM lParam)
 {
     int mouseDelta = GET_WHEEL_DELTA_WPARAM(wParam);
     if (LOWORD(wParam) == MK_CONTROL) {
         surfaceState.zoom += (double)(mouseDelta) / 100;
     } else {
-        surfaceState.vScrollPos += mouseDelta > 0 ? 0.1 : -0.1;
+        POINT screenPoint{LOWORD(lParam), HIWORD(lParam)};
+        ScreenToClient(window, &screenPoint);
+
+        if (renderTarget != nullptr && renderTarget->GetSize().height - screenPoint.y < 6) {
+            surfaceState.hScrollPos +=  mouseDelta > 0 ? 0.1 : -0.1;
+        } else {
+            surfaceState.vScrollPos += mouseDelta > 0 ? 0.1 : -0.1;
+        }
     }
 }
 
