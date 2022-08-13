@@ -78,7 +78,9 @@ struct CDocumentPagesLayoutParams {
     enum TStrategy {
         AlignLeft,
         AlignRight,
-        AlignHCenter
+        AlignHCenter,
+        HorizontalFlow,
+        VerticalFlow
     } strategy;
 };
 
@@ -148,7 +150,33 @@ CDocumentPagesLayout createPagesLayout(const std::vector<IDocumentPage*>& pages,
         }
         retval.totalSurfaceSize = {maxPageWidth + pageMargin * 2, topOffset - params.pagesSpacing};
         break;
-    }    
+    }
+    case CDocumentPagesLayoutParams::AlignHCenter:
+    {
+        float maxPageWidth = (*std::max_element(pages.begin(), pages.end(), [](const auto& lhs, const auto& rhs) {
+            return lhs->GetPageSize().cx < rhs->GetPageSize().cx;
+        }))->GetPageSize().cx;
+        float topOffset = 0.0;
+
+        for (const auto& page : pages) {
+            auto pageSize = page->GetPageSize();
+
+            retval.pageRects.emplace_back(
+                page,
+                D2D1_RECT_F{
+                    maxPageWidth / 2 + pageMargin - pageSize.cx / 2,
+                    topOffset + pageMargin,
+                    maxPageWidth / 2 + pageMargin + pageSize.cx / 2,
+                    topOffset + (float)pageSize.cy + pageMargin
+                }
+            );
+
+            topOffset += pageSize.cy + pageMargin * 2;
+            topOffset += params.pagesSpacing;
+        }
+        retval.totalSurfaceSize = {maxPageWidth + pageMargin * 2, topOffset - params.pagesSpacing};
+        break;
+    }
     default:
         break;
     }
@@ -259,7 +287,7 @@ void CDocumentView::OnDraw(WPARAM, LPARAM)
             CDocumentPagesLayoutParams{
                 5,
                 -5,
-                CDocumentPagesLayoutParams::AlignRight
+                CDocumentPagesLayoutParams::AlignHCenter
             }
         );
 
