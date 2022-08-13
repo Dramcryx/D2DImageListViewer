@@ -83,13 +83,18 @@ struct CDocumentPagesLayoutParams {
 };
 
 struct CDocumentPagesLayout {
-    D2D1_SIZE_F totalSurfaceSize;
+    D2D1_SIZE_F totalSurfaceSize = {0.0, 0.0};
     std::vector<std::pair<const IDocumentPage*, D2D1_RECT_F>> pageRects;
 };
 
 CDocumentPagesLayout createPagesLayout(const std::vector<IDocumentPage*>& pages, const CDocumentPagesLayoutParams& params)
 {
     CDocumentPagesLayout retval;
+
+    if (pages.empty()) {
+        return retval;
+    }
+
     const float pageMargin = float(params.pageMargin);
 
     switch (params.strategy)
@@ -119,8 +124,31 @@ CDocumentPagesLayout createPagesLayout(const std::vector<IDocumentPage*>& pages,
         break;
     }
     case CDocumentPagesLayoutParams::AlignRight:
+    {
+        float maxPageWidth = (*std::max_element(pages.begin(), pages.end(), [](const auto& lhs, const auto& rhs) {
+            return lhs->GetPageSize().cx < rhs->GetPageSize().cx;
+        }))->GetPageSize().cx;
+        float topOffset = 0.0;
+
+        for (const auto& page : pages) {
+            auto pageSize = page->GetPageSize();
+
+            retval.pageRects.emplace_back(
+                page,
+                D2D1_RECT_F{
+                    maxPageWidth + pageMargin - pageSize.cx,
+                    topOffset + pageMargin,
+                    maxPageWidth + pageMargin,
+                    topOffset + (float)pageSize.cy + pageMargin
+                }
+            );
+
+            topOffset += pageSize.cy + pageMargin * 2;
+            topOffset += params.pagesSpacing;
+        }
+        retval.totalSurfaceSize = {maxPageWidth + pageMargin * 2, topOffset - params.pagesSpacing};
         break;
-    
+    }    
     default:
         break;
     }
@@ -148,7 +176,6 @@ CDocumentView::CDocumentView()
     {
         throw std::runtime_error("CDocumentView::CDocumentView; CreateWindowEx");
     }
-
 }
 
 CDocumentView::~CDocumentView() = default;
@@ -232,7 +259,7 @@ void CDocumentView::OnDraw(WPARAM, LPARAM)
             CDocumentPagesLayoutParams{
                 5,
                 -5,
-                CDocumentPagesLayoutParams::AlignLeft
+                CDocumentPagesLayoutParams::AlignRight
             }
         );
 
