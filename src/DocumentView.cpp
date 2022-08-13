@@ -185,7 +185,7 @@ CDocumentPagesLayout createPagesLayout(const std::vector<IDocumentPage*>& pages,
 
 }
 
-CDocumentView::CDocumentView()
+CDocumentView::CDocumentView(HWND parent)
 {
     RegisterDocumentViewClass();
     if (CreateWindowEx(WS_EX_ACCEPTFILES, // EX STYLES
@@ -196,7 +196,7 @@ CDocumentView::CDocumentView()
                 0, // Y
                 600, // W
                 800, // H
-                NULL, // PARENT
+                parent, // PARENT
                 NULL, // MENU
                 GetModuleHandle(NULL), // INSTANCE
                 this) // ADDITIONAL PARAMS
@@ -234,7 +234,7 @@ CDocumentModel* CDocumentView::GetModel() const
 
 bool CDocumentView::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
 {
-    static std::unordered_map<UINT, std::function<void(CDocumentView*, WPARAM, LPARAM)>> messageHandlers{
+    static std::unordered_map<UINT, std::function<void(CDocumentView*, WPARAM, LPARAM)>> messageHandlers {
         {WM_PAINT, &CDocumentView::OnDraw},
         //{WM_ERASEBKGND, &CDocumentView::OnDraw},
         {WM_SIZE, &CDocumentView::OnSize},
@@ -292,29 +292,30 @@ void CDocumentView::OnDraw(WPARAM, LPARAM)
         );
 
         for (auto& pageLayout : pagesLayout.pageRects) {
-            renderTarget->DrawBitmap(pageLayout.first->GetPageBitmap(),
+            renderTarget->DrawBitmap(
+                pageLayout.first->GetPageBitmap(),
                 pageLayout.second,
                 1.0,
                 D2D1_BITMAP_INTERPOLATION_MODE_NEAREST_NEIGHBOR,
-                NULL);
-            renderTarget->DrawRectangle(pageLayout.second, surfaceProps.pageFrameColor, 1.0, NULL);
+                NULL
+            );
+
+            renderTarget->DrawRectangle(pageLayout.second, surfaceProps.pageFrameColor, 1.0, nullptr);
         }
 
         int totalSurfaceWidth = pagesLayout.totalSurfaceSize.width;
         int visibleSurfaceWidth = size.width;
+        double hVisibleToTotal = static_cast<double>(visibleSurfaceWidth) / static_cast<double>(totalSurfaceWidth);
+        surfaceState.hScrollPos = std::clamp(surfaceState.hScrollPos, -1.0 + hVisibleToTotal, 0.0);
+
         int totalSurfaceHeight = pagesLayout.totalSurfaceSize.height;
         int visibleSurfaceHeight = size.height;
+        double vVisibleToTotal = static_cast<double>(visibleSurfaceHeight) / static_cast<double>(totalSurfaceHeight);
+        surfaceState.vScrollPos = std::clamp(surfaceState.vScrollPos, -1.0 + vVisibleToTotal, 0.0);
 
-        auto zoom  = D2D1::Matrix3x2F::Identity();//D2D1::Matrix3x2F::Scale(surfaceState.zoom, surfaceState.zoom);
-        auto scroll = D2D1::Matrix3x2F::Translation(totalSurfaceWidth * surfaceState.hScrollPos, totalSurfaceHeight * surfaceState.vScrollPos);
-        renderTarget->SetTransform(scroll * zoom);
         // scrollRect
         {
-            double hVisibleToTotal = static_cast<double>(visibleSurfaceWidth) / static_cast<double>(totalSurfaceWidth);
-
             int hScrollBarWidth = visibleSurfaceWidth * hVisibleToTotal;
-
-            surfaceState.hScrollPos = std::clamp(surfaceState.hScrollPos, -1.0 + hVisibleToTotal, 0.0);
 
             const int hScrollHeight = 5;
 
@@ -327,11 +328,7 @@ void CDocumentView::OnDraw(WPARAM, LPARAM)
         }
         // scrollRect
         {
-            double vVisibleToTotal = static_cast<double>(visibleSurfaceHeight) / static_cast<double>(totalSurfaceHeight);
-
             int vScrollBarHeight = visibleSurfaceHeight * vVisibleToTotal;
-
-            surfaceState.vScrollPos = std::clamp(surfaceState.vScrollPos, -1.0 + vVisibleToTotal, 0.0);
 
             const int vScrollWidth = 5;
 
@@ -342,6 +339,9 @@ void CDocumentView::OnDraw(WPARAM, LPARAM)
             D2D1_ROUNDED_RECT scrollDrawRect{scrollRect, 4.0, 4.0};
             renderTarget->FillRoundedRectangle(scrollDrawRect, surfaceProps.scrollColor);
         }
+        auto zoom  = D2D1::Matrix3x2F::Identity();//D2D1::Matrix3x2F::Scale(surfaceState.zoom, surfaceState.zoom);
+        auto scroll = D2D1::Matrix3x2F::Translation(totalSurfaceWidth * surfaceState.hScrollPos, totalSurfaceHeight * surfaceState.vScrollPos);
+        renderTarget->SetTransform(scroll * zoom);
     }
     
     renderTarget->EndDraw();

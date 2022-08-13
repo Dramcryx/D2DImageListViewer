@@ -13,7 +13,7 @@
 
 class CDocumentView {
 public:
-    CDocumentView();
+    CDocumentView(HWND parent = nullptr);
     ~CDocumentView();
 
     void AttachHandle(HWND window);
