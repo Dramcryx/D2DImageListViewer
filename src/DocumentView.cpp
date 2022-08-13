@@ -1,5 +1,7 @@
 #include "DocumentView.h"
 
+#include "IDocumentPage.h"
+
 #include <cassert>
 #include <functional>
 #include <iostream>
@@ -30,7 +32,6 @@ LRESULT DocumentViewProc(HWND window, UINT msg, WPARAM wParam, LPARAM lParam)
         assert(documentView != nullptr);
         SetWindowLongPtr(window, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(documentView));
         documentView->AttachHandle(window);
-        documentView->SetModel(new CDocumentModel());
     }
     else
     {
@@ -72,6 +73,7 @@ void RegisterDocumentViewClass()
 }
 
 struct CDocumentPagesLayoutParams {
+    D2D1_SIZE_F drawSurfaceSize;
     int pageMargin = 0;
     int pagesSpacing = 0;
     
@@ -177,6 +179,43 @@ CDocumentPagesLayout createPagesLayout(const std::vector<IDocumentPage*>& pages,
         retval.totalSurfaceSize = {maxPageWidth + pageMargin * 2, topOffset - params.pagesSpacing};
         break;
     }
+    case CDocumentPagesLayoutParams::HorizontalFlow:
+    {
+        float totalLeftOffset = 0.0;
+
+        float topOffset = 0.0;
+        float leftOffset = 0.0;
+        float maxHeight = 0.0;
+        for (const auto& page : pages) {
+            auto pageSize = page->GetPageSize();
+
+            if (leftOffset != 0.0 && (pageSize.cx + leftOffset + pageMargin * 2 > params.drawSurfaceSize.width)) {
+                totalLeftOffset = std::max(totalLeftOffset, leftOffset);
+                leftOffset = 0.0;
+
+                topOffset += maxHeight + pageMargin * 2;
+                topOffset += params.pagesSpacing;
+                maxHeight = 0.0;
+            }
+
+            retval.pageRects.emplace_back(
+                page,
+                D2D1_RECT_F{
+                    leftOffset + pageMargin,
+                    topOffset + pageMargin,
+                    leftOffset + (float)pageSize.cx + pageMargin,
+                    topOffset + (float)pageSize.cy + pageMargin
+                }
+            );
+
+            maxHeight = std::max(maxHeight, (float)pageSize.cy + pageMargin * 2);
+            leftOffset += pageSize.cx + pageMargin * 2;
+            leftOffset += params.pagesSpacing;
+        }
+        totalLeftOffset = std::max(totalLeftOffset, leftOffset);
+        retval.totalSurfaceSize = {totalLeftOffset - params.pagesSpacing, topOffset + maxHeight - params.pagesSpacing};
+        break;
+    }
     default:
         break;
     }
@@ -222,12 +261,12 @@ void CDocumentView::Show()
     ShowWindow(window, SW_NORMAL);
 }
 
-void CDocumentView::SetModel(CDocumentModel* _model)
+void CDocumentView::SetModel(IDocumentModel* _model)
 {
     this->surfaceProps.model.reset(_model);
 }
 
-CDocumentModel* CDocumentView::GetModel() const
+IDocumentModel* CDocumentView::GetModel() const
 {
     return this->surfaceProps.model.get();
 }
@@ -285,9 +324,10 @@ void CDocumentView::OnDraw(WPARAM, LPARAM)
         auto pagesLayout = createPagesLayout(
             pages,
             CDocumentPagesLayoutParams{
+                sizeF,
                 5,
                 -5,
-                CDocumentPagesLayoutParams::AlignHCenter
+                CDocumentPagesLayoutParams::HorizontalFlow
             }
         );
 

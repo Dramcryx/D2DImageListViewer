@@ -21,6 +21,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR lpCmdLin
 
     CDocumentView view;
     view.Show();
+    view.SetModel(new CDocumentModel());
 
     MSG msg;
     while (GetMessage(&msg, view, 0, 0) > 0)

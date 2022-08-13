@@ -9,7 +9,7 @@
 #include <d2d1_1.h>
 
 #include "ComPtrOwner.h"
-#include "DocumentModel.h"
+#include "IDocumentModel.h"
 
 class CDocumentView {
 public:
@@ -20,8 +20,8 @@ public:
     operator HWND() { return window; }
     void Show();
 
-    void SetModel(CDocumentModel* model);
-    CDocumentModel* GetModel() const;
+    void SetModel(IDocumentModel* model);
+    IDocumentModel* GetModel() const;
 
     bool HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam);
 
@@ -37,7 +37,7 @@ private:
 
     struct CSurfaceProperties {
         CComPtrOwner<ID2D1HwndRenderTarget> renderTarget = nullptr;
-        std::unique_ptr<CDocumentModel> model = nullptr;
+        std::unique_ptr<IDocumentModel> model = nullptr;
         CComPtrOwner<ID2D1SolidColorBrush> backgroundColor = nullptr;
         CComPtrOwner<ID2D1SolidColorBrush> pageFrameColor = nullptr;
         CComPtrOwner<ID2D1SolidColorBrush> scrollColor = nullptr;
