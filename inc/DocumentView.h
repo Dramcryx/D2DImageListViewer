@@ -13,9 +13,10 @@
 #include "ComPtrOwner.h"
 #include "IDocumentModel.h"
 
-class IDocumentPage;
+struct IDocumentPage;
 
 class CDocumentView {
+    friend class CDocumentViewPrivate;
 public:
     CDocumentView(HWND parent = nullptr);
     ~CDocumentView();
@@ -50,8 +51,8 @@ private:
 
     // General properties
     struct CSurfaceState {
-        double vScrollPos = 0.0;
-        double hScrollPos = 0.0;
+        float vScrollPos = 0.0;
+        float hScrollPos = 0.0;
         float zoom = 1.0;
     } surfaceState;
 
@@ -82,7 +83,7 @@ private:
 
     /// @brief Resulting layout
     struct CDocumentPagesLayout {
-        D2D1_SIZE_F totalSurfaceSize = {0.0, 0.0};
+        D2D1_SIZE_F totalSurfaceSize = {0.0f, 0.0f};
         std::vector<std::pair<const IDocumentPage*, D2D1_RECT_F>> pageRects;
     };
 

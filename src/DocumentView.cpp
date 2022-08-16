@@ -1,3 +1,5 @@
+#include "Defines.h"
+
 #include "DocumentView.h"
 
 #include "IDocumentPage.h"
@@ -20,7 +22,7 @@ std::ostream& operator<<(std::ostream& out, const D2D1_RECT_F& rect)
     return out << rect.left << ' ' << rect.top << ' ' << rect.right << ' ' << rect.bottom << std::endl;
 }
 
-constexpr wchar_t* DocumentViewClassName = L"DIRECT2DDOCUMENTVIEW";
+const wchar_t* DocumentViewClassName = L"DIRECT2DDOCUMENTVIEW";
 
 LRESULT DocumentViewProc(HWND window, UINT msg, WPARAM wParam, LPARAM lParam)
 {
@@ -103,7 +105,7 @@ void CDocumentView::AttachHandle(HWND _window)
 
     d2dFactory.Reset();
 
-    assert(D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, &d2dFactory.ptr) == S_OK);
+    OK(D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, &d2dFactory.ptr));
 }
 
 void CDocumentView::Show()
@@ -199,13 +201,13 @@ void CDocumentView::OnDraw(WPARAM, LPARAM)
 
         int totalSurfaceWidth = surfaceLayout->totalSurfaceSize.width;
         int visibleSurfaceWidth = size.width;
-        double hVisibleToTotal = static_cast<double>(visibleSurfaceWidth) / static_cast<double>(totalSurfaceWidth);
-        surfaceState.hScrollPos = std::clamp(surfaceState.hScrollPos, -1.0 + hVisibleToTotal, 0.0);
+        float hVisibleToTotal = static_cast<float>(visibleSurfaceWidth) / static_cast<float>(totalSurfaceWidth);
+        surfaceState.hScrollPos = std::clamp(surfaceState.hScrollPos, -1.0f + hVisibleToTotal, 0.0f);
 
         int totalSurfaceHeight = surfaceLayout->totalSurfaceSize.height;
         int visibleSurfaceHeight = size.height;
-        double vVisibleToTotal = static_cast<double>(visibleSurfaceHeight) / static_cast<double>(totalSurfaceHeight);
-        surfaceState.vScrollPos = std::clamp(surfaceState.vScrollPos, -1.0 + vVisibleToTotal, 0.0);
+        float vVisibleToTotal = static_cast<float>(visibleSurfaceHeight) / static_cast<float>(totalSurfaceHeight);
+        surfaceState.vScrollPos = std::clamp(surfaceState.vScrollPos, -1.0f + vVisibleToTotal, 0.0f);
 
         // scrollRect
         {
@@ -289,22 +291,22 @@ void CDocumentView::createDependentResources(const D2D1_SIZE_U& size)
     surfaceProps.pageFrameColor.Reset();
     surfaceProps.scrollColor.Reset();
 
-    assert(d2dFactory->CreateHwndRenderTarget(
+    OK(d2dFactory->CreateHwndRenderTarget(
                 D2D1::RenderTargetProperties(),
                 D2D1::HwndRenderTargetProperties(window, size),
-                &surfaceProps.renderTarget.ptr) == S_OK);
+                &surfaceProps.renderTarget.ptr));
 
-    assert(surfaceProps.renderTarget->CreateSolidColorBrush(
+    OK(surfaceProps.renderTarget->CreateSolidColorBrush(
                 D2D1::ColorF(D2D1::ColorF::WhiteSmoke),
-                &surfaceProps.backgroundColor.ptr) == S_OK);
+                &surfaceProps.backgroundColor.ptr));
 
-    assert(surfaceProps.renderTarget->CreateSolidColorBrush(
+    OK(surfaceProps.renderTarget->CreateSolidColorBrush(
                 D2D1::ColorF(D2D1::ColorF::Black),
-                &surfaceProps.pageFrameColor.ptr) == S_OK);
+                &surfaceProps.pageFrameColor.ptr));
 
-    assert(surfaceProps.renderTarget->CreateSolidColorBrush(
+    OK(surfaceProps.renderTarget->CreateSolidColorBrush(
                 D2D1::ColorF(D2D1::ColorF::Gray),
-                &surfaceProps.scrollColor.ptr) == S_OK);
+                &surfaceProps.scrollColor.ptr));
     surfaceProps.scrollColor->SetOpacity(0.5f);
 
     if (surfaceProps.model != nullptr)
@@ -317,7 +319,7 @@ void CDocumentView::resize(int width, int height)
 {
     if (surfaceProps.renderTarget != nullptr)
     {
-        assert(surfaceProps.renderTarget->Resize(D2D1_SIZE_U{width, height}) == S_OK);
+        OK(surfaceProps.renderTarget->Resize(D2D1_SIZE_U{width, height}));
         assert(InvalidateRect(window, nullptr, false));
     }
 }

@@ -1,15 +1,9 @@
-#define WINE_UNICODE_NATIVE
-
 #include <iostream>
 #include <cassert>
 
 #include <windows.h>
 
-#ifndef UNICODE
-#define UNICODE
-#define _UNICODE
-#endif
-
+#include "Defines.h"
 #include "DocumentView.h"
 #include "DocumentModel.h"
 
@@ -17,7 +11,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR lpCmdLin
 {
     HeapSetInformation(NULL, HeapEnableTerminationOnCorruption, NULL, 0);
 
-    assert(CoInitializeEx(NULL, COINIT_MULTITHREADED) == S_OK);
+    OK(CoInitializeEx(NULL, COINIT_MULTITHREADED));
 
     CDocumentView view;
     view.Show();

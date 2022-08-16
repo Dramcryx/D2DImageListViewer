@@ -2,6 +2,7 @@ project (DocumentViewer)
 
 set(CMAKE_CXX_COMPILER x86_64-w64-mingw32-g++)
 set(CXX_STANDARD 17)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 add_executable (DocumentViewer src/main.cpp src/DocumentView.cpp src/DocumentModel.cpp src/DocumentPage.cpp)
 
