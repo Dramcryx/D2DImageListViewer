@@ -277,7 +277,7 @@ bool CDocumentView::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
         {WM_PAINT, &CDocumentView::OnDraw},
         //{WM_ERASEBKGND, &CDocumentView::OnDraw},
         {WM_SIZE, &CDocumentView::OnSize},
-        //{WM_SIZING, &CDocumentView::OnSizing}
+        //{WM_SIZING, &CDocumentView::OnSize},
         {WM_MOUSEWHEEL, &CDocumentView::OnScroll},
     };
 
@@ -292,8 +292,10 @@ bool CDocumentView::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
 
 void CDocumentView::OnDraw(WPARAM, LPARAM)
 {
-    RECT rect;
-    auto clientRect = GetClientRect(window, &rect);
+    PAINTSTRUCT ps;
+    BeginPaint(window, &ps);
+
+    RECT rect = ps.rcPaint;
     auto size = D2D1::SizeU(rect.right - rect.left, rect.bottom - rect.top);
 
     auto& renderTarget = surfaceProps.renderTarget;
@@ -384,7 +386,11 @@ void CDocumentView::OnDraw(WPARAM, LPARAM)
         renderTarget->SetTransform(scroll * zoom);
     }
     
-    renderTarget->EndDraw();
+    if (renderTarget->EndDraw() == D2DERR_RECREATE_TARGET)
+    {
+        createDependentResources(size);
+    }
+    EndPaint(window, &ps);
 }
 
 void CDocumentView::OnSize(WPARAM, LPARAM lParam)
@@ -419,6 +425,7 @@ void CDocumentView::OnScroll(WPARAM wParam, LPARAM lParam)
             surfaceState.vScrollPos += mouseDelta > 0 ? 0.05 : -0.05;
         }
     }
+    assert(InvalidateRect(window, nullptr, false));
 }
 
 void CDocumentView::createDependentResources(const D2D1_SIZE_U& size)
@@ -457,5 +464,6 @@ void CDocumentView::resize(int width, int height)
     if (surfaceProps.renderTarget != nullptr)
     {
         assert(surfaceProps.renderTarget->Resize(D2D1_SIZE_U{width, height}) == S_OK);
+        assert(InvalidateRect(window, nullptr, false));
     }
 }
