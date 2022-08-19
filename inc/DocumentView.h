@@ -1,22 +1,25 @@
 #ifndef DOCUMENT_VIEW_H
 #define DOCUMENT_VIEW_H
 
-#include <atomic>
-#include <memory>
-#include <optional>
-#include <vector>
+#include <Defines.h>
+#include <ComPtrOwner.h>
+#include <IDocumentModel.h>
 
 #include <windows.h>
 #include <d2d1.h>
 #include <d2d1_1.h>
 
-#include "ComPtrOwner.h"
-#include "IDocumentModel.h"
+#include <memory>
+#include <optional>
+#include <vector>
 
 struct IDocumentPage;
 
+namespace DocumentViewPrivate {
+class CDocumentLayoutHelper;
+}
+
 class CDocumentView {
-    friend class CDocumentViewPrivate;
 public:
     CDocumentView(HWND parent = nullptr);
     ~CDocumentView();
@@ -31,6 +34,7 @@ public:
     bool HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam);
 
 protected:
+    // Windows messages
     virtual void OnDraw(WPARAM, LPARAM);
     virtual void OnSize(WPARAM, LPARAM);
     virtual void OnSizing(WPARAM, LPARAM);
@@ -39,14 +43,15 @@ protected:
 private:
     HWND window = NULL;
     CComPtrOwner<ID2D1Factory> d2dFactory = nullptr;
+    std::unique_ptr<DocumentViewPrivate::CDocumentLayoutHelper> helper;
 
     // Direct2D objects and model
     struct CSurfaceProperties {
         CComPtrOwner<ID2D1HwndRenderTarget> renderTarget = nullptr;
         std::unique_ptr<IDocumentModel> model = nullptr;
-        CComPtrOwner<ID2D1SolidColorBrush> backgroundColor = nullptr;
-        CComPtrOwner<ID2D1SolidColorBrush> pageFrameColor = nullptr;
-        CComPtrOwner<ID2D1SolidColorBrush> scrollColor = nullptr;
+        CComPtrOwner<ID2D1SolidColorBrush> backgroundBrush = nullptr;
+        CComPtrOwner<ID2D1SolidColorBrush> pageFrameBrush = nullptr;
+        CComPtrOwner<ID2D1SolidColorBrush> scrollBarBrush = nullptr;
     } surfaceProps;
 
     // General properties
@@ -54,6 +59,10 @@ private:
         float vScrollPos = 0.0;
         float hScrollPos = 0.0;
         float zoom = 1.0;
+
+        D2D_COLOR_F scrollBarColor{D2D1::ColorF{D2D1::ColorF::DarkGray, 1.0f}};
+        D2D_COLOR_F bkColor{D2D1::ColorF{D2D1::ColorF::WhiteSmoke, 1.0f}};
+        D2D_COLOR_F pageFrameColor{D2D1::ColorF{D2D1::ColorF::WhiteSmoke, 1.0f}};
     } surfaceState;
 
     /// @brief Creates Direct2D objects
@@ -61,36 +70,6 @@ private:
 
     /// @brief Adjusts the size of the render target
     void resize(int width, int height);
-
-    //////////////
-    /// LAYOUT ///
-    //////////////
-
-    /// @brief Layout descriptor
-    struct CDocumentPagesLayoutParams {
-        D2D1_SIZE_F drawSurfaceSize;
-        int pageMargin = 0;
-        int pagesSpacing = 0;
-        
-        enum TStrategy {
-            AlignLeft,
-            AlignRight,
-            AlignHCenter,
-            HorizontalFlow,
-            VerticalFlow
-        } strategy;
-    };
-
-    /// @brief Resulting layout
-    struct CDocumentPagesLayout {
-        D2D1_SIZE_F totalSurfaceSize = {0.0f, 0.0f};
-        std::vector<std::pair<const IDocumentPage*, D2D1_RECT_F>> pageRects;
-    };
-
-    std::optional<CDocumentPagesLayout> surfaceLayout;
-
-    /// @brief Generates pages rects based on layout descriptor
-    CDocumentPagesLayout createPagesLayout(const std::vector<IDocumentPage*>& pages, const CDocumentPagesLayoutParams& params);
 };
 
 #endif

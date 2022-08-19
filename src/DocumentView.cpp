@@ -1,8 +1,9 @@
-#include "Defines.h"
-
 #include "DocumentView.h"
 
-#include "IDocumentPage.h"
+#include "DocumentViewPrivate.h"
+
+#include <Direct2DMatrixSwitcher.h>
+#include <IDocumentPage.h>
 
 #include <cassert>
 #include <functional>
@@ -15,12 +16,12 @@
 
 #include <winuser.rh>
 
-namespace {
-
 std::ostream& operator<<(std::ostream& out, const D2D1_RECT_F& rect)
 {
     return out << rect.left << ' ' << rect.top << ' ' << rect.right << ' ' << rect.bottom << std::endl;
 }
+
+namespace {
 
 const wchar_t* DocumentViewClassName = L"DIRECT2DDOCUMENTVIEW";
 
@@ -55,7 +56,7 @@ void RegisterDocumentViewClass()
         viewClass = WNDCLASSEX{};
         auto& ref = *viewClass;
         ref.cbSize = sizeof(WNDCLASSEX);
-        ref.style = CS_VREDRAW | CS_HREDRAW | CS_OWNDC;
+        ref.style = 0;
         ref.lpfnWndProc = DocumentViewProc;
         ref.cbClsExtra = 0;
         ref.cbWndExtra = 0;
@@ -95,6 +96,7 @@ CDocumentView::CDocumentView(HWND parent)
     {
         throw std::runtime_error("CDocumentView::CDocumentView; CreateWindowEx");
     }
+    helper.reset(new DocumentViewPrivate::CDocumentLayoutHelper{});
 }
 
 CDocumentView::~CDocumentView() = default;
@@ -160,84 +162,69 @@ void CDocumentView::OnDraw(WPARAM, LPARAM)
     D2D1_SIZE_F sizeF{float(size.width), float(size.height)};
     auto currentSizeF = renderTarget->GetSize();
 
-    if (std::tie(sizeF.width, sizeF.height) != std::tie(currentSizeF.width, currentSizeF.height)) {
+    if (sizeF != currentSizeF) {
         resize(size.width, size.height);
     }
 
     renderTarget->BeginDraw();
-    renderTarget->Clear(surfaceProps.backgroundColor->GetColor());
+    renderTarget->Clear(surfaceProps.backgroundBrush->GetColor());
 
     if (surfaceProps.model != nullptr)
     {
-        if (!surfaceLayout.has_value()) {
-            std::vector<IDocumentPage*> pages;
-            for (int i = 0; i < surfaceProps.model->GetPageCount(); ++i)
-            {
-                pages.push_back(reinterpret_cast<IDocumentPage*>(surfaceProps.model->GetData(i, TDocumentModelRoles::PageRole)));
-            }
-
-            surfaceLayout = this->createPagesLayout(
-                pages,
-                CDocumentPagesLayoutParams{
+        const auto& surfaceLayout = helper->GetOrCreateLayout(DocumentViewPrivate::CDocumentPagesLayoutParams{
                     [this, sizeF]() { return D2D1_SIZE_F{sizeF.width / surfaceState.zoom, sizeF.height / surfaceState.zoom};}(),
                     5,
                     -5,
-                    CDocumentPagesLayoutParams::HorizontalFlow
-                }
-            );
-        }
+                    DocumentViewPrivate::CDocumentPagesLayoutParams::HorizontalFlow
+        }, surfaceProps.model.get());
 
-        for (auto& pageLayout : surfaceLayout->pageRects) {
-            renderTarget->DrawBitmap(
-                pageLayout.first->GetPageBitmap(),
-                pageLayout.second,
-                1.0,
-                D2D1_BITMAP_INTERPOLATION_MODE_NEAREST_NEIGHBOR,
-                NULL
-            );
-
-            renderTarget->DrawRectangle(pageLayout.second, surfaceProps.pageFrameColor, 1.0, nullptr);
-        }
-
-        int totalSurfaceWidth = surfaceLayout->totalSurfaceSize.width;
+        int totalSurfaceWidth = surfaceLayout.totalSurfaceSize.width * surfaceState.zoom;
         int visibleSurfaceWidth = size.width;
         float hVisibleToTotal = static_cast<float>(visibleSurfaceWidth) / static_cast<float>(totalSurfaceWidth);
         surfaceState.hScrollPos = std::clamp(surfaceState.hScrollPos, -1.0f + hVisibleToTotal, 0.0f);
 
-        int totalSurfaceHeight = surfaceLayout->totalSurfaceSize.height;
+        int totalSurfaceHeight = surfaceLayout.totalSurfaceSize.height * surfaceState.zoom;
         int visibleSurfaceHeight = size.height;
         float vVisibleToTotal = static_cast<float>(visibleSurfaceHeight) / static_cast<float>(totalSurfaceHeight);
         surfaceState.vScrollPos = std::clamp(surfaceState.vScrollPos, -1.0f + vVisibleToTotal, 0.0f);
 
-        // scrollRect
         {
-            int hScrollBarWidth = visibleSurfaceWidth * hVisibleToTotal;
+            CDirect2DMatrixSwitcher switcher{
+                surfaceProps.renderTarget,
+                D2D1::Matrix3x2F::Scale(surfaceState.zoom, surfaceState.zoom)
+                    * D2D1::Matrix3x2F::Translation(totalSurfaceWidth * surfaceState.hScrollPos, totalSurfaceHeight * surfaceState.vScrollPos)};
 
-            const int hScrollHeight = 5;
+            for (auto& pageLayout : surfaceLayout.pageRects) {
+                renderTarget->DrawBitmap(
+                    pageLayout.first->GetPageBitmap(),
+                    pageLayout.second,
+                    1.0,
+                    D2D1_BITMAP_INTERPOLATION_MODE_NEAREST_NEIGHBOR,
+                    NULL
+                );
 
-            int hScrollBarTopPos = -(totalSurfaceHeight * surfaceState.vScrollPos) + visibleSurfaceHeight - hScrollHeight;
-            int hScrollBarLeftPos = -(totalSurfaceWidth * surfaceState.hScrollPos + visibleSurfaceWidth * surfaceState.hScrollPos);
-
-            D2D1_RECT_F scrollRect{hScrollBarLeftPos + 2, hScrollBarTopPos - 2, hScrollBarLeftPos + hScrollBarWidth - 2, hScrollBarTopPos + hScrollHeight - 2};
-            D2D1_ROUNDED_RECT scrollDrawRect{scrollRect, 4.0, 4.0};
-            renderTarget->FillRoundedRectangle(scrollDrawRect, surfaceProps.scrollColor);
+                renderTarget->DrawRectangle(pageLayout.second, surfaceProps.pageFrameBrush, 1.0 / surfaceState.zoom, nullptr);
+            }
         }
-        // scrollRect
-        {
-            int vScrollBarHeight = visibleSurfaceHeight * vVisibleToTotal;
 
-            const int vScrollWidth = 5;
+        auto scrollBarRects = helper->GetOrCreateScrollBarRects(sizeF, surfaceLayout.totalSurfaceSize);
+        if (scrollBarRects.hScrollBar.has_value() && hVisibleToTotal < 1.0f) {
+            auto& rect = scrollBarRects.hScrollBar->rect;
+            rect.left -= visibleSurfaceWidth * surfaceState.hScrollPos;
+            rect.right -= visibleSurfaceWidth * surfaceState.hScrollPos;
+            rect.top += visibleSurfaceHeight;
+            rect.bottom += visibleSurfaceHeight;
 
-            int vScrollBarLeftPos = -(totalSurfaceWidth  * surfaceState.hScrollPos) + visibleSurfaceWidth - vScrollWidth;
-            int vScrollBarTopPos = -(totalSurfaceHeight * surfaceState.vScrollPos + visibleSurfaceHeight * surfaceState.vScrollPos);
-
-            D2D1_RECT_F scrollRect{vScrollBarLeftPos - 2, vScrollBarTopPos + 2, vScrollBarLeftPos + vScrollWidth - 2, vScrollBarTopPos + vScrollBarHeight - 2};
-            D2D1_ROUNDED_RECT scrollDrawRect{scrollRect, 4.0, 4.0};
-            renderTarget->FillRoundedRectangle(scrollDrawRect, surfaceProps.scrollColor);
+            renderTarget->FillRoundedRectangle(*scrollBarRects.hScrollBar, surfaceProps.scrollBarBrush);
         }
-        auto zoom  = D2D1::Matrix3x2F::Scale(surfaceState.zoom, surfaceState.zoom);
-        auto scroll = D2D1::Matrix3x2F::Translation(totalSurfaceWidth * surfaceState.hScrollPos, totalSurfaceHeight * surfaceState.vScrollPos);
-        renderTarget->SetTransform(scroll * zoom);
+        if (scrollBarRects.vScrollBar.has_value() && vVisibleToTotal < 1.0f) {
+            auto& rect = scrollBarRects.vScrollBar->rect;
+            rect.left += visibleSurfaceWidth;
+            rect.right += visibleSurfaceWidth;
+            rect.top -= visibleSurfaceHeight * surfaceState.vScrollPos ;
+            rect.bottom -= visibleSurfaceHeight * surfaceState.vScrollPos;
+            renderTarget->FillRoundedRectangle(*scrollBarRects.vScrollBar, surfaceProps.scrollBarBrush);
+        }
     }
     
     if (renderTarget->EndDraw() == D2DERR_RECREATE_TARGET)
@@ -270,7 +257,6 @@ void CDocumentView::OnScroll(WPARAM wParam, LPARAM lParam)
     if (LOWORD(wParam) == MK_CONTROL) {
         surfaceState.zoom += mouseDelta > 0 ? 0.1f : -0.1f;
         surfaceState.zoom = std::max(surfaceState.zoom, 0.1f);
-        surfaceLayout.reset();
     } else {
         POINT screenPoint{LOWORD(lParam), HIWORD(lParam)};
         ScreenToClient(window, &screenPoint);
@@ -287,9 +273,9 @@ void CDocumentView::OnScroll(WPARAM wParam, LPARAM lParam)
 void CDocumentView::createDependentResources(const D2D1_SIZE_U& size)
 {
     surfaceProps.renderTarget.Reset();
-    surfaceProps.backgroundColor.Reset();
-    surfaceProps.pageFrameColor.Reset();
-    surfaceProps.scrollColor.Reset();
+    surfaceProps.backgroundBrush.Reset();
+    surfaceProps.pageFrameBrush.Reset();
+    surfaceProps.scrollBarBrush.Reset();
 
     OK(d2dFactory->CreateHwndRenderTarget(
                 D2D1::RenderTargetProperties(),
@@ -298,16 +284,16 @@ void CDocumentView::createDependentResources(const D2D1_SIZE_U& size)
 
     OK(surfaceProps.renderTarget->CreateSolidColorBrush(
                 D2D1::ColorF(D2D1::ColorF::WhiteSmoke),
-                &surfaceProps.backgroundColor.ptr));
+                &surfaceProps.backgroundBrush.ptr));
 
     OK(surfaceProps.renderTarget->CreateSolidColorBrush(
                 D2D1::ColorF(D2D1::ColorF::Black),
-                &surfaceProps.pageFrameColor.ptr));
+                &surfaceProps.pageFrameBrush.ptr));
 
     OK(surfaceProps.renderTarget->CreateSolidColorBrush(
                 D2D1::ColorF(D2D1::ColorF::Gray),
-                &surfaceProps.scrollColor.ptr));
-    surfaceProps.scrollColor->SetOpacity(0.5f);
+                &surfaceProps.scrollBarBrush.ptr));
+    surfaceProps.scrollBarBrush->SetOpacity(0.5f);
 
     if (surfaceProps.model != nullptr)
     {
@@ -322,135 +308,4 @@ void CDocumentView::resize(int width, int height)
         OK(surfaceProps.renderTarget->Resize(D2D1_SIZE_U{width, height}));
         assert(InvalidateRect(window, nullptr, false));
     }
-}
-
-CDocumentView::CDocumentPagesLayout CDocumentView::createPagesLayout(const std::vector<IDocumentPage*>& pages, const CDocumentView::CDocumentPagesLayoutParams& params)
-{
-    CDocumentPagesLayout retval;
-
-    if (pages.empty()) {
-        return retval;
-    }
-
-    const float pageMargin = float(params.pageMargin);
-
-    switch (params.strategy)
-    {
-    case CDocumentPagesLayoutParams::AlignLeft:
-    {
-        float topOffset = 0.0;
-        float maxWidth = 0.0;
-        for (const auto& page : pages) {
-            auto pageSize = page->GetPageSize();
-
-            retval.pageRects.emplace_back(
-                page,
-                D2D1_RECT_F{
-                    pageMargin,
-                    topOffset + pageMargin,
-                    (float)pageSize.cx + pageMargin,
-                    topOffset + (float)pageSize.cy + pageMargin
-                }
-            );
-
-            maxWidth = std::max(maxWidth, (float)pageSize.cx + pageMargin * 2);
-            topOffset += pageSize.cy + pageMargin * 2;
-            topOffset += params.pagesSpacing;
-        }
-        retval.totalSurfaceSize = {maxWidth, topOffset - params.pagesSpacing};
-        break;
-    }
-    case CDocumentPagesLayoutParams::AlignRight:
-    {
-        float maxPageWidth = (*std::max_element(pages.begin(), pages.end(), [](const auto& lhs, const auto& rhs) {
-            return lhs->GetPageSize().cx < rhs->GetPageSize().cx;
-        }))->GetPageSize().cx;
-        float topOffset = 0.0;
-
-        for (const auto& page : pages) {
-            auto pageSize = page->GetPageSize();
-
-            retval.pageRects.emplace_back(
-                page,
-                D2D1_RECT_F{
-                    maxPageWidth + pageMargin - pageSize.cx,
-                    topOffset + pageMargin,
-                    maxPageWidth + pageMargin,
-                    topOffset + (float)pageSize.cy + pageMargin
-                }
-            );
-
-            topOffset += pageSize.cy + pageMargin * 2;
-            topOffset += params.pagesSpacing;
-        }
-        retval.totalSurfaceSize = {maxPageWidth + pageMargin * 2, topOffset - params.pagesSpacing};
-        break;
-    }
-    case CDocumentPagesLayoutParams::AlignHCenter:
-    {
-        float maxPageWidth = (*std::max_element(pages.begin(), pages.end(), [](const auto& lhs, const auto& rhs) {
-            return lhs->GetPageSize().cx < rhs->GetPageSize().cx;
-        }))->GetPageSize().cx;
-        float topOffset = 0.0;
-
-        for (const auto& page : pages) {
-            auto pageSize = page->GetPageSize();
-
-            retval.pageRects.emplace_back(
-                page,
-                D2D1_RECT_F{
-                    maxPageWidth / 2 + pageMargin - pageSize.cx / 2,
-                    topOffset + pageMargin,
-                    maxPageWidth / 2 + pageMargin + pageSize.cx / 2,
-                    topOffset + (float)pageSize.cy + pageMargin
-                }
-            );
-
-            topOffset += pageSize.cy + pageMargin * 2;
-            topOffset += params.pagesSpacing;
-        }
-        retval.totalSurfaceSize = {maxPageWidth + pageMargin * 2, topOffset - params.pagesSpacing};
-        break;
-    }
-    case CDocumentPagesLayoutParams::HorizontalFlow:
-    {
-        float totalLeftOffset = 0.0;
-
-        float topOffset = 0.0;
-        float leftOffset = 0.0;
-        float maxHeight = 0.0;
-        for (const auto& page : pages) {
-            auto pageSize = page->GetPageSize();
-
-            if (leftOffset != 0.0 && (pageSize.cx + leftOffset + pageMargin * 2 > params.drawSurfaceSize.width)) {
-                totalLeftOffset = std::max(totalLeftOffset, leftOffset);
-                leftOffset = 0.0;
-
-                topOffset += maxHeight + pageMargin * 2;
-                topOffset += params.pagesSpacing;
-                maxHeight = 0.0;
-            }
-
-            retval.pageRects.emplace_back(
-                page,
-                D2D1_RECT_F{
-                    leftOffset + pageMargin,
-                    topOffset + pageMargin,
-                    leftOffset + (float)pageSize.cx + pageMargin,
-                    topOffset + (float)pageSize.cy + pageMargin
-                }
-            );
-
-            maxHeight = std::max(maxHeight, (float)pageSize.cy + pageMargin * 2);
-            leftOffset += pageSize.cx + pageMargin * 2;
-            leftOffset += params.pagesSpacing;
-        }
-        totalLeftOffset = std::max(totalLeftOffset, leftOffset);
-        retval.totalSurfaceSize = {totalLeftOffset - params.pagesSpacing, topOffset + maxHeight - params.pagesSpacing};
-        break;
-    }
-    default:
-        break;
-    }
-    return retval;
 }
