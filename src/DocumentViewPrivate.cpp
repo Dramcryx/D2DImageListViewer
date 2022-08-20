@@ -16,13 +16,35 @@ bool operator!=(const D2D_SIZE_F& lhs, const D2D_SIZE_F& rhs)
     return !(lhs == rhs);
 }
 
+bool operator==(const D2D1_RECT_F& lhs, const D2D1_RECT_F& rhs)
+{
+    return std::tie(lhs.left, lhs.top, lhs.right, lhs.bottom)
+                == std::tie(rhs.left, rhs.top, rhs.right, rhs.bottom);
+}
+
+bool operator!=(const D2D1_RECT_F& lhs, const D2D1_RECT_F& rhs)
+{
+    return !(lhs == rhs);
+}
+
 std::ostream& operator<<(std::ostream& out, const D2D1_RECT_F& rect);
 
 namespace DocumentViewPrivate {
 
 const CDocumentPagesLayout& CDocumentLayoutHelper::GetOrCreateLayout(const CDocumentPagesLayoutParams& params, const IDocumentModel* model)
 {
+    // If fully matched, return cached layout
     if (cachedLayout.has_value() && params == lastLayoutRequest.first && model == lastLayoutRequest.second) {
+        return *cachedLayout;
+    }
+
+    // otherwise, if size changed, only flow layout requires recalculations, others are not
+    if (cachedLayout.has_value()
+            && params.drawSurfaceSize != lastLayoutRequest.first.drawSurfaceSize
+            && model == lastLayoutRequest.second
+            && params.strategy != CDocumentPagesLayoutParams::HorizontalFlow
+            && lastLayoutRequest.first.strategy != CDocumentPagesLayoutParams::HorizontalFlow)
+    {
         return *cachedLayout;
     }
 
@@ -73,6 +95,7 @@ const CDocumentPagesLayout& CDocumentLayoutHelper::GetOrCreateLayout(const CDocu
         float maxPageWidth = (*std::max_element(pages.begin(), pages.end(), [](const auto& lhs, const auto& rhs) {
             return lhs->GetPageSize().cx < rhs->GetPageSize().cx;
         }))->GetPageSize().cx;
+
         float topOffset = 0.0;
 
         for (const auto& page : pages) {
@@ -169,36 +192,90 @@ const CDocumentPagesLayout& CDocumentLayoutHelper::GetOrCreateLayout(const CDocu
         break;
     }
     cachedLayout.emplace(std::move(retval));
+
+    lastLayoutRequest.first = params;
+    lastLayoutRequest.second = model;
+
     return *cachedLayout;
 }
 
-const CScrollBarRects& CDocumentLayoutHelper::GetOrCreateScrollBarRects(const D2D1_SIZE_F& visibleSurfaceSize, const D2D1_SIZE_F& totalSurfaceSize)
+const CScrollBarRects& CDocumentLayoutHelper::GetOrCreateRelativeScrollBarRects(
+        const D2D1_SIZE_F& zoomedTotalSurfaceSize, const D2D1_SIZE_F& visibleSurfaceSize, float vScroll, float hScroll)
 {
-    if (cachedScrollRects.has_value() && visibleSurfaceSize == lastScrollBarsParams.first && totalSurfaceSize == lastScrollBarsParams.second) {
-        return *cachedScrollRects;
+    // if surface size not changed, we can just change the position
+    if (cachedRelativeScrollRects.has_value()
+            && zoomedTotalSurfaceSize == lastRelativeScrollBarsRequest.zoomedTotalSurfaceSize
+            && visibleSurfaceSize == lastRelativeScrollBarsRequest.visibleSurfaceSize)
+    {
+        // but if scroll pos is not changed, return cache
+        if (vScroll == lastRelativeScrollBarsRequest.vScroll && hScroll == lastRelativeScrollBarsRequest.hScroll) {
+            return *cachedRelativeScrollRects;
+        }
+        // finally, move scroll rects and update request cache
+        {
+            const float newHScrollBarLeft = -visibleSurfaceSize.width * hScroll;
+            auto& hScrollBarRect = cachedRelativeScrollRects->hScrollBar->rect;
+            const float hScrollBarWidth = hScrollBarRect.right - hScrollBarRect.left;
+            hScrollBarRect.left = newHScrollBarLeft;
+            hScrollBarRect.right = newHScrollBarLeft + hScrollBarWidth;
+            lastRelativeScrollBarsRequest.hScroll = hScroll;
+        }
+
+        {
+            const float newVScrollBarTop = -visibleSurfaceSize.height * vScroll;
+            auto& vScrollBarRect = cachedRelativeScrollRects->vScrollBar->rect;
+            const float vScrollBarHeight = vScrollBarRect.bottom - vScrollBarRect.top;
+            vScrollBarRect.top = newVScrollBarTop;
+            vScrollBarRect.bottom = newVScrollBarTop + vScrollBarHeight;
+            lastRelativeScrollBarsRequest.vScroll = vScroll;
+        }
+        return *cachedRelativeScrollRects;
     }
 
-    float hVisibleToTotal = static_cast<float>(visibleSurfaceSize.width) / static_cast<float>(totalSurfaceSize.width);
-    float vVisibleToTotal = static_cast<float>(visibleSurfaceSize.height) / static_cast<float>(totalSurfaceSize.height);
 
-    constexpr int scrollBarThickness = 5;
+    cachedRelativeScrollRects.reset();
+    CScrollBarRects newRects;
 
-    CScrollBarRects rects;
-    // hScrollRect
-    if (hVisibleToTotal < 1.0f) {
-        int hScrollBarWidth = visibleSurfaceSize.width * hVisibleToTotal;
-        D2D1_RECT_F scrollRect{2, -2 - scrollBarThickness, hScrollBarWidth - 2, -2};
-        rects.hScrollBar = {scrollRect, 4.0, 4.0};
+    const float hVisibleToTotal = visibleSurfaceSize.width / zoomedTotalSurfaceSize.width;
+    const float vVisibleToTotal = visibleSurfaceSize.height / zoomedTotalSurfaceSize.height;
+
+    constexpr float scrollBarThickness = 5.0f;
+    constexpr float scrollBarRadius = 3.0f;
+
+    if (hVisibleToTotal < 1.0f)
+    {
+        const float hScrollBarWidth = visibleSurfaceSize.width * hVisibleToTotal;
+        const float hScrollBarLeft = -visibleSurfaceSize.width * hScroll;
+        const float hScrollBarTop = visibleSurfaceSize.height - scrollBarThickness;
+        D2D1_RECT_F hScrollBarRect{
+            hScrollBarLeft,
+            hScrollBarTop,
+            hScrollBarLeft + hScrollBarWidth,
+            hScrollBarTop + scrollBarThickness
+        };
+        newRects.hScrollBar = {hScrollBarRect, scrollBarRadius, scrollBarRadius};
     }
-    // vScrollRect
-    if (vVisibleToTotal < 1.0f) {
-        int vScrollBarHeight = visibleSurfaceSize.height * vVisibleToTotal;
-        D2D1_RECT_F scrollRect{-2 - scrollBarThickness, 2, -2, vScrollBarHeight - 2};
-        rects.vScrollBar = {scrollRect, 4.0, 4.0};
-    }
-    cachedScrollRects = rects;
 
-    return *cachedScrollRects;
+    if (vVisibleToTotal < 1.0f)
+    {
+        const float vScrollBarHeight = visibleSurfaceSize.height * vVisibleToTotal;
+        const float vScrollBarLeft = visibleSurfaceSize.width - scrollBarThickness;
+        const float vScrollBarTop = -visibleSurfaceSize.height * vScroll;
+        D2D1_RECT_F vScrollBarRect{
+            vScrollBarLeft,
+            vScrollBarTop,
+            vScrollBarLeft + scrollBarThickness,
+            vScrollBarTop + vScrollBarHeight
+        };
+        newRects.vScrollBar = {vScrollBarRect, scrollBarRadius, scrollBarRadius};
+    }
+
+    lastRelativeScrollBarsRequest.zoomedTotalSurfaceSize = zoomedTotalSurfaceSize;
+    lastRelativeScrollBarsRequest.visibleSurfaceSize = visibleSurfaceSize;
+    lastRelativeScrollBarsRequest.vScroll = vScroll;
+    lastRelativeScrollBarsRequest.hScroll = hScroll;
+
+    return *(cachedRelativeScrollRects = newRects);
 }
 
 }

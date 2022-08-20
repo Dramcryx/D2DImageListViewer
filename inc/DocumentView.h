@@ -42,20 +42,22 @@ protected:
 
 private:
     HWND window = NULL;
+
+    std::unique_ptr<IDocumentModel> model = nullptr;
+
     CComPtrOwner<ID2D1Factory> d2dFactory = nullptr;
     std::unique_ptr<DocumentViewPrivate::CDocumentLayoutHelper> helper;
 
-    // Direct2D objects and model
-    struct CSurfaceProperties {
+    // Direct2D objects
+    struct CSurfaceContext {
         CComPtrOwner<ID2D1HwndRenderTarget> renderTarget = nullptr;
-        std::unique_ptr<IDocumentModel> model = nullptr;
         CComPtrOwner<ID2D1SolidColorBrush> backgroundBrush = nullptr;
         CComPtrOwner<ID2D1SolidColorBrush> pageFrameBrush = nullptr;
         CComPtrOwner<ID2D1SolidColorBrush> scrollBarBrush = nullptr;
-    } surfaceProps;
+    } surfaceContext;
 
     // General properties
-    struct CSurfaceState {
+    struct CViewProperties {
         float vScrollPos = 0.0;
         float hScrollPos = 0.0;
         float zoom = 1.0;
@@ -63,7 +65,7 @@ private:
         D2D_COLOR_F scrollBarColor{D2D1::ColorF{D2D1::ColorF::DarkGray, 1.0f}};
         D2D_COLOR_F bkColor{D2D1::ColorF{D2D1::ColorF::WhiteSmoke, 1.0f}};
         D2D_COLOR_F pageFrameColor{D2D1::ColorF{D2D1::ColorF::WhiteSmoke, 1.0f}};
-    } surfaceState;
+    } viewProperties;
 
     /// @brief Creates Direct2D objects
     void createDependentResources(const D2D1_SIZE_U& size);

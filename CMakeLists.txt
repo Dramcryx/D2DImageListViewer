@@ -7,7 +7,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 add_executable (DocumentViewer src/main.cpp src/DocumentView.cpp src/DocumentModel.cpp src/DocumentPage.cpp src/DocumentViewPrivate.cpp)
 
 target_include_directories (DocumentViewer PUBLIC inc)
-target_compile_options (DocumentViewer PUBLIC -mwindows -municode)
+target_compile_options (DocumentViewer PUBLIC -mwindows -municode -g -O2)
 target_link_libraries (DocumentViewer PUBLIC gdiplus comctl32 d2d1 ole32 windowscodecs)
 target_link_options (DocumentViewer PUBLIC -mwindows -municode -Wl,--subsystem,windows)
 SET(CMAKE_SHARED_LIBRARY_LINK_CXX_FLAGS)

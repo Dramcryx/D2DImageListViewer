@@ -18,7 +18,7 @@
 
 std::ostream& operator<<(std::ostream& out, const D2D1_RECT_F& rect)
 {
-    return out << rect.left << ' ' << rect.top << ' ' << rect.right << ' ' << rect.bottom << std::endl;
+    return out << rect.left << ' ' << rect.top << ' ' << rect.right << ' ' << rect.bottom;
 }
 
 namespace {
@@ -105,7 +105,7 @@ void CDocumentView::AttachHandle(HWND _window)
 {
     this->window = _window;
 
-    d2dFactory.Reset();
+    this->d2dFactory.Reset();
 
     OK(D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, &d2dFactory.ptr));
 }
@@ -117,12 +117,12 @@ void CDocumentView::Show()
 
 void CDocumentView::SetModel(IDocumentModel* _model)
 {
-    this->surfaceProps.model.reset(_model);
+    this->model.reset(_model);
 }
 
 IDocumentModel* CDocumentView::GetModel() const
 {
-    return this->surfaceProps.model.get();
+    return this->model.get();
 }
 
 bool CDocumentView::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
@@ -147,17 +147,15 @@ bool CDocumentView::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
 void CDocumentView::OnDraw(WPARAM, LPARAM)
 {
     PAINTSTRUCT ps;
-    BeginPaint(window, &ps);
+    BeginPaint(this->window, &ps);
 
     RECT rect = ps.rcPaint;
     auto size = D2D1::SizeU(rect.right - rect.left, rect.bottom - rect.top);
 
-    auto& renderTarget = surfaceProps.renderTarget;
+    auto& renderTarget = this->surfaceContext.renderTarget;
     if (renderTarget == nullptr) {
-        createDependentResources(size);
+        this->createDependentResources(size);
     }
-
-    D2D1_RECT_F drawRect{rect.left, rect.top, rect.right, rect.bottom};
 
     D2D1_SIZE_F sizeF{float(size.width), float(size.height)};
     auto currentSizeF = renderTarget->GetSize();
@@ -167,32 +165,33 @@ void CDocumentView::OnDraw(WPARAM, LPARAM)
     }
 
     renderTarget->BeginDraw();
-    renderTarget->Clear(surfaceProps.backgroundBrush->GetColor());
+    renderTarget->Clear(this->viewProperties.bkColor);
 
-    if (surfaceProps.model != nullptr)
+    if (this->model != nullptr)
     {
-        const auto& surfaceLayout = helper->GetOrCreateLayout(DocumentViewPrivate::CDocumentPagesLayoutParams{
-                    [this, sizeF]() { return D2D1_SIZE_F{sizeF.width / surfaceState.zoom, sizeF.height / surfaceState.zoom};}(),
+        const auto& surfaceLayout = this->helper->GetOrCreateLayout(
+            DocumentViewPrivate::CDocumentPagesLayoutParams{
+                    D2D1_SIZE_F{sizeF.width / viewProperties.zoom, sizeF.height / viewProperties.zoom},
                     5,
                     -5,
                     DocumentViewPrivate::CDocumentPagesLayoutParams::HorizontalFlow
-        }, surfaceProps.model.get());
+            }, model.get());
 
-        int totalSurfaceWidth = surfaceLayout.totalSurfaceSize.width * surfaceState.zoom;
+        int totalSurfaceWidth = surfaceLayout.totalSurfaceSize.width * viewProperties.zoom;
         int visibleSurfaceWidth = size.width;
         float hVisibleToTotal = static_cast<float>(visibleSurfaceWidth) / static_cast<float>(totalSurfaceWidth);
-        surfaceState.hScrollPos = std::clamp(surfaceState.hScrollPos, -1.0f + hVisibleToTotal, 0.0f);
+        viewProperties.hScrollPos = std::clamp(viewProperties.hScrollPos, -1.0f + hVisibleToTotal, 0.0f);
 
-        int totalSurfaceHeight = surfaceLayout.totalSurfaceSize.height * surfaceState.zoom;
+        int totalSurfaceHeight = surfaceLayout.totalSurfaceSize.height * viewProperties.zoom;
         int visibleSurfaceHeight = size.height;
         float vVisibleToTotal = static_cast<float>(visibleSurfaceHeight) / static_cast<float>(totalSurfaceHeight);
-        surfaceState.vScrollPos = std::clamp(surfaceState.vScrollPos, -1.0f + vVisibleToTotal, 0.0f);
+        viewProperties.vScrollPos = std::clamp(viewProperties.vScrollPos, -1.0f + vVisibleToTotal, 0.0f);
 
         {
             CDirect2DMatrixSwitcher switcher{
-                surfaceProps.renderTarget,
-                D2D1::Matrix3x2F::Scale(surfaceState.zoom, surfaceState.zoom)
-                    * D2D1::Matrix3x2F::Translation(totalSurfaceWidth * surfaceState.hScrollPos, totalSurfaceHeight * surfaceState.vScrollPos)};
+                this->surfaceContext.renderTarget,
+                D2D1::Matrix3x2F::Scale(viewProperties.zoom, viewProperties.zoom)
+                    * D2D1::Matrix3x2F::Translation(totalSurfaceWidth * viewProperties.hScrollPos, totalSurfaceHeight * viewProperties.vScrollPos)};
 
             for (auto& pageLayout : surfaceLayout.pageRects) {
                 renderTarget->DrawBitmap(
@@ -203,34 +202,29 @@ void CDocumentView::OnDraw(WPARAM, LPARAM)
                     NULL
                 );
 
-                renderTarget->DrawRectangle(pageLayout.second, surfaceProps.pageFrameBrush, 1.0 / surfaceState.zoom, nullptr);
+                renderTarget->DrawRectangle(pageLayout.second, this->surfaceContext.pageFrameBrush, 1.0 / this->viewProperties.zoom, nullptr);
             }
         }
 
-        auto scrollBarRects = helper->GetOrCreateScrollBarRects(sizeF, surfaceLayout.totalSurfaceSize);
-        if (scrollBarRects.hScrollBar.has_value() && hVisibleToTotal < 1.0f) {
-            auto& rect = scrollBarRects.hScrollBar->rect;
-            rect.left -= visibleSurfaceWidth * surfaceState.hScrollPos;
-            rect.right -= visibleSurfaceWidth * surfaceState.hScrollPos;
-            rect.top += visibleSurfaceHeight;
-            rect.bottom += visibleSurfaceHeight;
+        const auto& scrollBarRects = this->helper->GetOrCreateRelativeScrollBarRects(
+            {totalSurfaceWidth, totalSurfaceHeight},
+            sizeF,
+            this->viewProperties.vScrollPos,
+            this->viewProperties.hScrollPos
+        );
 
-            renderTarget->FillRoundedRectangle(*scrollBarRects.hScrollBar, surfaceProps.scrollBarBrush);
+        if (scrollBarRects.hScrollBar.has_value()) {
+            renderTarget->FillRoundedRectangle(*scrollBarRects.hScrollBar, this->surfaceContext.scrollBarBrush);
         }
-        if (scrollBarRects.vScrollBar.has_value() && vVisibleToTotal < 1.0f) {
-            auto& rect = scrollBarRects.vScrollBar->rect;
-            rect.left += visibleSurfaceWidth;
-            rect.right += visibleSurfaceWidth;
-            rect.top -= visibleSurfaceHeight * surfaceState.vScrollPos ;
-            rect.bottom -= visibleSurfaceHeight * surfaceState.vScrollPos;
-            renderTarget->FillRoundedRectangle(*scrollBarRects.vScrollBar, surfaceProps.scrollBarBrush);
+        if (scrollBarRects.vScrollBar.has_value()) {
+            renderTarget->FillRoundedRectangle(*scrollBarRects.vScrollBar, this->surfaceContext.scrollBarBrush);
         }
     }
     
-    if (renderTarget->EndDraw() == D2DERR_RECREATE_TARGET)
-    {
-        createDependentResources(size);
+    if (renderTarget->EndDraw() == D2DERR_RECREATE_TARGET) {
+        this->createDependentResources(size);
     }
+
     EndPaint(window, &ps);
 }
 
@@ -238,7 +232,7 @@ void CDocumentView::OnSize(WPARAM, LPARAM lParam)
 {
     int width = LOWORD(lParam);
     int height = HIWORD(lParam);
-    resize(width, height);
+    this->resize(width, height);
 }
 
 void CDocumentView::OnSizing(WPARAM, LPARAM lParam)
@@ -248,64 +242,67 @@ void CDocumentView::OnSizing(WPARAM, LPARAM lParam)
     int newWidth = asRect->right - asRect->left - GetSystemMetrics(SM_CXVSCROLL);
     int newHeight = asRect->bottom - asRect->top - GetSystemMetrics(SM_CXHSCROLL);
     
-    resize(newWidth, newHeight);
+    this->resize(newWidth, newHeight);
 }
 
 void CDocumentView::OnScroll(WPARAM wParam, LPARAM lParam)
 {
     int mouseDelta = GET_WHEEL_DELTA_WPARAM(wParam);
-    if (LOWORD(wParam) == MK_CONTROL) {
-        surfaceState.zoom += mouseDelta > 0 ? 0.1f : -0.1f;
-        surfaceState.zoom = std::max(surfaceState.zoom, 0.1f);
-    } else {
+    if (LOWORD(wParam) == MK_CONTROL)
+    {
+        this->viewProperties.zoom += mouseDelta > 0 ? 0.1f : -0.1f;
+        this->viewProperties.zoom = std::max(this->viewProperties.zoom, 0.1f);
+    }
+    else
+    {
         POINT screenPoint{LOWORD(lParam), HIWORD(lParam)};
         ScreenToClient(window, &screenPoint);
 
-        if (surfaceProps.renderTarget != nullptr && surfaceProps.renderTarget->GetSize().height - screenPoint.y < 10) {
-            surfaceState.hScrollPos +=  mouseDelta > 0 ? 0.05 : -0.05;
+        if (this->surfaceContext.renderTarget != nullptr
+                && this->surfaceContext.renderTarget->GetSize().height - screenPoint.y < 10) {
+            this->viewProperties.hScrollPos +=  mouseDelta > 0 ? 0.05 : -0.05;
         } else {
-            surfaceState.vScrollPos += mouseDelta > 0 ? 0.05 : -0.05;
+            this->viewProperties.vScrollPos += mouseDelta > 0 ? 0.05 : -0.05;
         }
     }
-    assert(InvalidateRect(window, nullptr, false));
+    assert(InvalidateRect(this->window, nullptr, false));
 }
 
 void CDocumentView::createDependentResources(const D2D1_SIZE_U& size)
 {
-    surfaceProps.renderTarget.Reset();
-    surfaceProps.backgroundBrush.Reset();
-    surfaceProps.pageFrameBrush.Reset();
-    surfaceProps.scrollBarBrush.Reset();
+    this->surfaceContext.renderTarget.Reset();
+    this->surfaceContext.backgroundBrush.Reset();
+    this->surfaceContext.pageFrameBrush.Reset();
+    this->surfaceContext.scrollBarBrush.Reset();
 
-    OK(d2dFactory->CreateHwndRenderTarget(
-                D2D1::RenderTargetProperties(),
-                D2D1::HwndRenderTargetProperties(window, size),
-                &surfaceProps.renderTarget.ptr));
+    OK(this->d2dFactory->CreateHwndRenderTarget(
+                    D2D1::RenderTargetProperties(),
+                    D2D1::HwndRenderTargetProperties(this->window, size),
+                    &this->surfaceContext.renderTarget.ptr));
 
-    OK(surfaceProps.renderTarget->CreateSolidColorBrush(
-                D2D1::ColorF(D2D1::ColorF::WhiteSmoke),
-                &surfaceProps.backgroundBrush.ptr));
+    OK(this->surfaceContext.renderTarget->CreateSolidColorBrush(
+                    D2D1::ColorF(D2D1::ColorF::WhiteSmoke),
+                    &this->surfaceContext.backgroundBrush.ptr));
 
-    OK(surfaceProps.renderTarget->CreateSolidColorBrush(
-                D2D1::ColorF(D2D1::ColorF::Black),
-                &surfaceProps.pageFrameBrush.ptr));
+    OK(this->surfaceContext.renderTarget->CreateSolidColorBrush(
+                    D2D1::ColorF(D2D1::ColorF::Black),
+                    &this->surfaceContext.pageFrameBrush.ptr));
 
-    OK(surfaceProps.renderTarget->CreateSolidColorBrush(
-                D2D1::ColorF(D2D1::ColorF::Gray),
-                &surfaceProps.scrollBarBrush.ptr));
-    surfaceProps.scrollBarBrush->SetOpacity(0.5f);
+    OK(this->surfaceContext.renderTarget->CreateSolidColorBrush(
+                    D2D1::ColorF(D2D1::ColorF::Gray),
+                    &this->surfaceContext.scrollBarBrush.ptr));
+    this->surfaceContext.scrollBarBrush->SetOpacity(0.5f);
 
-    if (surfaceProps.model != nullptr)
-    {
-        surfaceProps.model->CreateObjects(surfaceProps.renderTarget);
+    if (this->model != nullptr) {
+        this->model->CreateObjects(this->surfaceContext.renderTarget);
     }
 }
 
 void CDocumentView::resize(int width, int height)
 {
-    if (surfaceProps.renderTarget != nullptr)
+    if (this->surfaceContext.renderTarget != nullptr)
     {
-        OK(surfaceProps.renderTarget->Resize(D2D1_SIZE_U{width, height}));
-        assert(InvalidateRect(window, nullptr, false));
+        OK(this->surfaceContext.renderTarget->Resize(D2D1_SIZE_U{width, height}));
+        assert(InvalidateRect(this->window, nullptr, false));
     }
 }

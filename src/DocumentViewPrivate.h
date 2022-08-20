@@ -16,10 +16,13 @@ struct IDocumentPage;
 bool operator==(const D2D_SIZE_F& lhs, const D2D_SIZE_F& rhs);
 bool operator!=(const D2D_SIZE_F& lhs, const D2D_SIZE_F& rhs);
 
+bool operator==(const D2D1_RECT_F& lhs, const D2D1_RECT_F& rhs);
+bool operator!=(const D2D1_RECT_F& lhs, const D2D1_RECT_F& rhs);
+
 namespace DocumentViewPrivate {
 /// @brief Layout descriptor
 struct CDocumentPagesLayoutParams {
-    D2D1_SIZE_F drawSurfaceSize;
+    D2D1_SIZE_F drawSurfaceSize{0, 0};
     int pageMargin = 0;
     int pagesSpacing = 0;
     
@@ -27,9 +30,8 @@ struct CDocumentPagesLayoutParams {
         AlignLeft,
         AlignRight,
         AlignHCenter,
-        HorizontalFlow,
-        VerticalFlow
-    } strategy;
+        HorizontalFlow
+    } strategy = AlignLeft;
 
     bool operator==(const CDocumentPagesLayoutParams& rhs) const
     {
@@ -56,14 +58,22 @@ public:
     ~CDocumentLayoutHelper() = default;
 
     const CDocumentPagesLayout& GetOrCreateLayout(const CDocumentPagesLayoutParams& params, const IDocumentModel* model);
-    const CScrollBarRects& GetOrCreateScrollBarRects(const D2D1_SIZE_F& visibleSurfaceSize, const D2D1_SIZE_F& totalSurfaceSize);
+    const CScrollBarRects& GetOrCreateRelativeScrollBarRects(
+        const D2D1_SIZE_F& zoomedTotalSurfaceSize, const D2D1_SIZE_F& visibleSurfaceSize, float vScroll, float hScroll);
 
 private:
     std::pair<CDocumentPagesLayoutParams, const IDocumentModel*> lastLayoutRequest;
     std::optional<CDocumentPagesLayout> cachedLayout;
 
-    std::pair<D2D1_SIZE_F, D2D1_SIZE_F> lastScrollBarsParams;
-    std::optional<CScrollBarRects> cachedScrollRects;
+    struct CScrollBarsRequest {
+        D2D1_SIZE_F zoomedTotalSurfaceSize;
+        D2D1_SIZE_F visibleSurfaceSize;
+        float hScroll;
+        float vScroll;
+    };
+
+    CScrollBarsRequest lastRelativeScrollBarsRequest;
+    std::optional<CScrollBarRects> cachedRelativeScrollRects;
 };
 
 }
