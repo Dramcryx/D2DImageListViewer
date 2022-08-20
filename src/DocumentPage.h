@@ -1,10 +1,10 @@
 #ifndef DOCUMENT_PAGE_H
 #define DOCUMENT_PAGE_H
 
-#include <d2d1.h>
+#include <ComPtrOwner.h>
+#include <IDocumentPage.h>
 
-#include "ComPtrOwner.h"
-#include "IDocumentPage.h"
+#include <d2d1.h>
 
 class CDocumentPage : public IDocumentPage
 {

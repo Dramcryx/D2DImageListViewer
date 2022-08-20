@@ -1,12 +1,16 @@
+#include <Defines.h>
+
 #include "DocumentModel.h"
 
-#include <cassert>
+#include "DocumentPage.h"
+
+#include <ComPtrOwner.h>
 
 #include <combaseapi.h>
 #include <wincodec.h>
 
-#include "ComPtrOwner.h"
-#include "DocumentPage.h"
+#include <cassert>
+
 
 CDocumentModel::CDocumentModel()
 {

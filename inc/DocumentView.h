@@ -5,13 +5,10 @@
 #include <ComPtrOwner.h>
 #include <IDocumentModel.h>
 
-#include <windows.h>
-#include <d2d1.h>
 #include <d2d1_1.h>
+#include <windows.h>
 
 #include <memory>
-#include <optional>
-#include <vector>
 
 struct IDocumentPage;
 
@@ -51,7 +48,6 @@ private:
     // Direct2D objects
     struct CSurfaceContext {
         CComPtrOwner<ID2D1HwndRenderTarget> renderTarget = nullptr;
-        CComPtrOwner<ID2D1SolidColorBrush> backgroundBrush = nullptr;
         CComPtrOwner<ID2D1SolidColorBrush> pageFrameBrush = nullptr;
         CComPtrOwner<ID2D1SolidColorBrush> scrollBarBrush = nullptr;
     } surfaceContext;
@@ -62,9 +58,9 @@ private:
         float hScrollPos = 0.0;
         float zoom = 1.0;
 
-        D2D_COLOR_F scrollBarColor{D2D1::ColorF{D2D1::ColorF::DarkGray, 1.0f}};
         D2D_COLOR_F bkColor{D2D1::ColorF{D2D1::ColorF::WhiteSmoke, 1.0f}};
-        D2D_COLOR_F pageFrameColor{D2D1::ColorF{D2D1::ColorF::WhiteSmoke, 1.0f}};
+        D2D_COLOR_F pageFrameColor{D2D1::ColorF{D2D1::ColorF::Black, 1.0f}};
+        D2D_COLOR_F scrollBarColor{D2D1::ColorF{D2D1::ColorF::Black, .5f}};
     } viewProperties;
 
     /// @brief Creates Direct2D objects

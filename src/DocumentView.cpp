@@ -5,16 +5,13 @@
 #include <Direct2DMatrixSwitcher.h>
 #include <IDocumentPage.h>
 
+#include <winuser.rh>
+
 #include <cassert>
 #include <functional>
 #include <iostream>
-#include <optional>
 #include <stdexcept>
 #include <unordered_map>
-
-#include <d2d1.h>
-
-#include <winuser.rh>
 
 std::ostream& operator<<(std::ostream& out, const D2D1_RECT_F& rect)
 {
@@ -271,7 +268,6 @@ void CDocumentView::OnScroll(WPARAM wParam, LPARAM lParam)
 void CDocumentView::createDependentResources(const D2D1_SIZE_U& size)
 {
     this->surfaceContext.renderTarget.Reset();
-    this->surfaceContext.backgroundBrush.Reset();
     this->surfaceContext.pageFrameBrush.Reset();
     this->surfaceContext.scrollBarBrush.Reset();
 
@@ -281,17 +277,12 @@ void CDocumentView::createDependentResources(const D2D1_SIZE_U& size)
                     &this->surfaceContext.renderTarget.ptr));
 
     OK(this->surfaceContext.renderTarget->CreateSolidColorBrush(
-                    D2D1::ColorF(D2D1::ColorF::WhiteSmoke),
-                    &this->surfaceContext.backgroundBrush.ptr));
-
-    OK(this->surfaceContext.renderTarget->CreateSolidColorBrush(
-                    D2D1::ColorF(D2D1::ColorF::Black),
+                    this->viewProperties.pageFrameColor,
                     &this->surfaceContext.pageFrameBrush.ptr));
 
     OK(this->surfaceContext.renderTarget->CreateSolidColorBrush(
-                    D2D1::ColorF(D2D1::ColorF::Gray),
+                    this->viewProperties.scrollBarColor,
                     &this->surfaceContext.scrollBarBrush.ptr));
-    this->surfaceContext.scrollBarBrush->SetOpacity(0.5f);
 
     if (this->model != nullptr) {
         this->model->CreateObjects(this->surfaceContext.renderTarget);

@@ -1,11 +1,11 @@
+#include <Defines.h>
+
+#include "DocumentModel.h"
+
+#include <DocumentView.h>
+
 #include <iostream>
 #include <cassert>
-
-#include <windows.h>
-
-#include "Defines.h"
-#include "DocumentView.h"
-#include "DocumentModel.h"
 
 int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR lpCmdLine, int nCmdShow)
 {
