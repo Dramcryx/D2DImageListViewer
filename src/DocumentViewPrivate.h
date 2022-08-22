@@ -2,13 +2,16 @@
 #define DOCUMENT_VIEW_PRIVATE_H
 
 #include <Defines.h>
+#include <ComPtrOwner.h>
 
 #include <d2d1.h>
 #include <d2d1helper.h>
+#include <dwrite.h>
 
-#include <vector>
 #include <optional>
+#include <string>
 #include <tuple>
+#include <vector>
 
 struct IDocumentModel;
 struct IDocumentPage;
@@ -43,7 +46,14 @@ struct CDocumentPagesLayoutParams {
 /// @brief Resulting layout
 struct CDocumentPagesLayout {
     D2D1_SIZE_F totalSurfaceSize = {0.0f, 0.0f};
-    std::vector<std::pair<const IDocumentPage*, D2D1_RECT_F>> pageRects;
+    struct CPageLayout {
+        CComPtrOwner<IDWriteTextLayout> textLayout = nullptr;
+        D2D1_RECT_F textRect;
+
+        const IDocumentPage* page = nullptr;
+        D2D1_RECT_F pageRect;
+    };
+    std::vector<CPageLayout> pageRects;
 };
 
 /// @brief Where to draw scrolls

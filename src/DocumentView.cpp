@@ -191,15 +191,20 @@ void CDocumentView::OnDraw(WPARAM, LPARAM)
                     * D2D1::Matrix3x2F::Translation(totalSurfaceWidth * viewProperties.hScrollPos, totalSurfaceHeight * viewProperties.vScrollPos)};
 
             for (auto& pageLayout : surfaceLayout.pageRects) {
+                renderTarget->DrawTextLayout(
+                    {pageLayout.textRect.left, pageLayout.textRect.top},
+                    pageLayout.textLayout.ptr,
+                    surfaceContext.pageFrameBrush
+                );
                 renderTarget->DrawBitmap(
-                    pageLayout.first->GetPageBitmap(),
-                    pageLayout.second,
+                    pageLayout.page->GetPageBitmap(),
+                    pageLayout.pageRect,
                     1.0,
                     D2D1_BITMAP_INTERPOLATION_MODE_NEAREST_NEIGHBOR,
                     NULL
                 );
 
-                renderTarget->DrawRectangle(pageLayout.second, this->surfaceContext.pageFrameBrush, 1.0 / this->viewProperties.zoom, nullptr);
+                renderTarget->DrawRectangle(pageLayout.pageRect, this->surfaceContext.pageFrameBrush, 1.0, nullptr);
             }
         }
 

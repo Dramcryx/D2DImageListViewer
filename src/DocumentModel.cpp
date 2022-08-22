@@ -7,13 +7,40 @@
 #include <ComPtrOwner.h>
 
 #include <combaseapi.h>
+#include <dwrite.h>
 #include <wincodec.h>
 
 #include <cassert>
 
-
-CDocumentModel::CDocumentModel()
+namespace {
+IDWriteFactory* DirectWriteFactory()
 {
+    static CComPtrOwner<IDWriteFactory> factory = nullptr;
+    if (factory == nullptr)
+    {
+        OK(DWriteCreateFactory(
+            DWRITE_FACTORY_TYPE_ISOLATED, __uuidof(IDWriteFactory),
+            reinterpret_cast<IUnknown**>(&factory.ptr)
+        ));
+    }
+    return factory.ptr;
+}
+}
+
+
+CDocumentModel::CDocumentModel() : headerFont{nullptr}
+{
+    auto factory = DirectWriteFactory();
+    OK(factory->CreateTextFormat(
+        L"DejaVu Serif",
+        nullptr,
+        DWRITE_FONT_WEIGHT_REGULAR,
+        DWRITE_FONT_STYLE_NORMAL,
+        DWRITE_FONT_STRETCH_ULTRA_CONDENSED,
+        28,
+        L"en-us",
+        &headerFont.ptr
+    ));
 }
 
 CDocumentModel::~CDocumentModel()
@@ -30,6 +57,7 @@ bool CDocumentModel::CreateObjects(ID2D1RenderTarget* renderTarget)
     {
         delete page;
     }
+    pages.clear();
 
     const wchar_t *files[] = {
         L"pic1.jpg",
@@ -61,10 +89,18 @@ void* CDocumentModel::GetData(int index, TDocumentModelRoles role) const
     switch (role)
     {
     case TDocumentModelRoles::HeaderFontRole:
+        return headerFont.ptr;
+    case TDocumentModelRoles::HeaderTextRole:
+    {
+        wchar_t pageTitleBuffer[128] = {0};
+        wsprintf(pageTitleBuffer, L"Page %d of %d", index + 1, pages.size());
+        return wcsdup(pageTitleBuffer);
+    }
     case TDocumentModelRoles::ToolbarRole:
         return nullptr;
-    default:
+    case TDocumentModelRoles::PageRole:
         return pages.at(index);
+    default:
         break;
     }
     return nullptr;

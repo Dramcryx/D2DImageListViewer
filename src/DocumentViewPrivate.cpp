@@ -4,6 +4,7 @@
 #include <IDocumentPage.h>
 
 #include <algorithm>
+#include <cassert>
 #include <iostream>
 
 bool operator==(const D2D_SIZE_F& lhs, const D2D_SIZE_F& rhs)
@@ -25,6 +26,19 @@ bool operator==(const D2D1_RECT_F& lhs, const D2D1_RECT_F& rhs)
 bool operator!=(const D2D1_RECT_F& lhs, const D2D1_RECT_F& rhs)
 {
     return !(lhs == rhs);
+}
+
+IDWriteFactory* DirectWriteFactory()
+{
+    static CComPtrOwner<IDWriteFactory> factory = nullptr;
+    if (factory == nullptr)
+    {
+        OK(DWriteCreateFactory(
+            DWRITE_FACTORY_TYPE_ISOLATED, __uuidof(IDWriteFactory),
+            reinterpret_cast<IUnknown**>(&factory.ptr)
+        ));
+    }
+    return factory.ptr;
 }
 
 std::ostream& operator<<(std::ostream& out, const D2D1_RECT_F& rect);
@@ -51,11 +65,28 @@ const CDocumentPagesLayout& CDocumentLayoutHelper::GetOrCreateLayout(const CDocu
     CDocumentPagesLayout retval;
 
     if (model->GetPageCount() == 0) {
-        return *(cachedLayout = retval);
+        cachedLayout.emplace(std::move(retval));
+        return *cachedLayout;
     }
 
     const float pageMargin = float(params.pageMargin);
 
+    auto generateTextLayout = [](IDWriteTextFormat* textFormat, const std::wstring& text, float maxWidth, IDWriteTextLayout** output) {
+        OK(DirectWriteFactory()->CreateTextLayout(
+                text.c_str(),
+                text.length(),
+                textFormat,
+                maxWidth,
+                0.0f,
+                output
+        ));
+
+        DWRITE_TEXT_METRICS textMetrics;
+        OK((*output)->GetMetrics(&textMetrics));
+        return std::make_pair(textMetrics.widthIncludingTrailingWhitespace, textMetrics.height * 11.f / 10.f);
+    };
+
+    retval.pageRects.reserve(model->GetPageCount());
     switch (params.strategy)
     {
     case CDocumentPagesLayoutParams::AlignLeft:
@@ -66,18 +97,34 @@ const CDocumentPagesLayout& CDocumentLayoutHelper::GetOrCreateLayout(const CDocu
             auto page = reinterpret_cast<IDocumentPage*>(model->GetData(i, TDocumentModelRoles::PageRole));
             auto pageSize = page->GetPageSize();
 
-            retval.pageRects.emplace_back(
-                page,
-                D2D1_RECT_F{
-                    pageMargin,
-                    topOffset + pageMargin,
-                    (float)pageSize.cx + pageMargin,
-                    topOffset + (float)pageSize.cy + pageMargin
-                }
+            CDocumentPagesLayout::CPageLayout pageLayout;
+
+            auto format = reinterpret_cast<IDWriteTextFormat*>(model->GetData(i, TDocumentModelRoles::HeaderFontRole));
+            auto [textWidth, textHeight] = generateTextLayout(
+                format,
+                std::wstring{(wchar_t*)model->GetData(i, TDocumentModelRoles::HeaderTextRole)},
+                pageSize.cx,
+                &pageLayout.textLayout.ptr
             );
 
+            pageLayout.textRect = {
+                pageMargin,
+                topOffset + pageMargin,
+                textWidth + pageMargin,
+                topOffset + pageMargin + textHeight};
+
+            pageLayout.page = page;
+            pageLayout.pageRect = {
+                pageMargin,
+                pageLayout.textRect.bottom,
+                pageMargin + pageSize.cx,
+                pageLayout.textRect.bottom + pageSize.cy + pageMargin
+            };
+
+            retval.pageRects.push_back(std::move(pageLayout));
+
             maxWidth = std::max(maxWidth, (float)pageSize.cx + pageMargin * 2);
-            topOffset += pageSize.cy + pageMargin * 2;
+            topOffset += pageSize.cy + pageMargin * 2 + textHeight;
             topOffset += params.pagesSpacing;
         }
         retval.totalSurfaceSize = {maxWidth, topOffset - params.pagesSpacing};
@@ -98,20 +145,37 @@ const CDocumentPagesLayout& CDocumentLayoutHelper::GetOrCreateLayout(const CDocu
 
         float topOffset = 0.0;
 
-        for (const auto& page : pages) {
+        for (int i = 0; i < model->GetPageCount(); ++i) {
+            auto page = reinterpret_cast<IDocumentPage*>(model->GetData(i, TDocumentModelRoles::PageRole));
             auto pageSize = page->GetPageSize();
 
-            retval.pageRects.emplace_back(
-                page,
-                D2D1_RECT_F{
-                    maxPageWidth + pageMargin - pageSize.cx,
-                    topOffset + pageMargin,
-                    maxPageWidth + pageMargin,
-                    topOffset + (float)pageSize.cy + pageMargin
-                }
+            CDocumentPagesLayout::CPageLayout pageLayout;
+
+            auto format = reinterpret_cast<IDWriteTextFormat*>(model->GetData(i, TDocumentModelRoles::HeaderFontRole));
+            auto [textWidth, textHeight] = generateTextLayout(
+                format,
+                std::wstring{(wchar_t*)model->GetData(i, TDocumentModelRoles::HeaderTextRole)},
+                pageSize.cx,
+                &pageLayout.textLayout.ptr
             );
 
-            topOffset += pageSize.cy + pageMargin * 2;
+            pageLayout.textRect = {
+                maxPageWidth + pageMargin - textWidth,
+                topOffset + pageMargin,
+                maxPageWidth + pageMargin,
+                topOffset + textHeight};
+
+            pageLayout.page = page;
+            pageLayout.pageRect = {
+                maxPageWidth + pageMargin - pageSize.cx,
+                pageLayout.textRect.bottom,
+                maxPageWidth + pageMargin,
+                pageLayout.textRect.bottom + pageSize.cy + pageMargin
+            };
+
+            retval.pageRects.push_back(std::move(pageLayout));
+
+            topOffset += pageSize.cy + pageMargin * 2 + textHeight;
             topOffset += params.pagesSpacing;
         }
         retval.totalSurfaceSize = {maxPageWidth + pageMargin * 2, topOffset - params.pagesSpacing};
@@ -131,20 +195,36 @@ const CDocumentPagesLayout& CDocumentLayoutHelper::GetOrCreateLayout(const CDocu
         }))->GetPageSize().cx;
         float topOffset = 0.0;
 
-        for (const auto& page : pages) {
+        for (int i = 0; i < model->GetPageCount(); ++i) {
+            auto page = reinterpret_cast<IDocumentPage*>(model->GetData(i, TDocumentModelRoles::PageRole));
             auto pageSize = page->GetPageSize();
 
-            retval.pageRects.emplace_back(
-                page,
-                D2D1_RECT_F{
-                    maxPageWidth / 2 + pageMargin - pageSize.cx / 2,
-                    topOffset + pageMargin,
-                    maxPageWidth / 2 + pageMargin + pageSize.cx / 2,
-                    topOffset + (float)pageSize.cy + pageMargin
-                }
+            CDocumentPagesLayout::CPageLayout pageLayout;
+
+            auto format = reinterpret_cast<IDWriteTextFormat*>(model->GetData(i, TDocumentModelRoles::HeaderFontRole));
+            auto [textWidth, textHeight] = generateTextLayout(
+                format,
+                std::wstring{(wchar_t*)model->GetData(i, TDocumentModelRoles::HeaderTextRole)},
+                pageSize.cx,
+                &pageLayout.textLayout.ptr
             );
 
-            topOffset += pageSize.cy + pageMargin * 2;
+            pageLayout.textRect = {
+                maxPageWidth / 2 + pageMargin - pageSize.cx / 2,
+                topOffset + pageMargin,
+                maxPageWidth / 2 + pageMargin - pageSize.cx / 2 + textWidth,
+                topOffset + textHeight};
+            pageLayout.page = page;
+            pageLayout.pageRect = {
+                maxPageWidth / 2 + pageMargin - pageSize.cx / 2,
+                pageLayout.textRect.bottom,
+                maxPageWidth + pageMargin,
+                pageLayout.textRect.bottom + pageSize.cy + pageMargin
+            };
+
+            retval.pageRects.push_back(std::move(pageLayout));
+
+            topOffset += pageSize.cy + pageMargin * 2 + textHeight;
             topOffset += params.pagesSpacing;
         }
         retval.totalSurfaceSize = {maxPageWidth + pageMargin * 2, topOffset - params.pagesSpacing};
@@ -170,17 +250,33 @@ const CDocumentPagesLayout& CDocumentLayoutHelper::GetOrCreateLayout(const CDocu
                 maxHeight = 0.0;
             }
 
-            retval.pageRects.emplace_back(
-                page,
-                D2D1_RECT_F{
-                    leftOffset + pageMargin,
-                    topOffset + pageMargin,
-                    leftOffset + (float)pageSize.cx + pageMargin,
-                    topOffset + (float)pageSize.cy + pageMargin
-                }
+            CDocumentPagesLayout::CPageLayout pageLayout;
+
+            auto format = reinterpret_cast<IDWriteTextFormat*>(model->GetData(i, TDocumentModelRoles::HeaderFontRole));
+            auto [textWidth, textHeight] = generateTextLayout(
+                format,
+                std::wstring{(wchar_t*)model->GetData(i, TDocumentModelRoles::HeaderTextRole)},
+                pageSize.cx,
+                &pageLayout.textLayout.ptr
             );
 
-            maxHeight = std::max(maxHeight, (float)pageSize.cy + pageMargin * 2);
+            pageLayout.textRect = {
+                leftOffset + pageMargin,
+                topOffset + pageMargin,
+                leftOffset + (float)pageSize.cx + pageMargin + textWidth,
+                topOffset + pageMargin + textHeight};
+            pageLayout.page = page;
+
+            pageLayout.pageRect = {
+                pageLayout.textRect.left,
+                pageLayout.textRect.bottom,
+                pageLayout.textRect.left + (float)pageSize.cx,
+                pageLayout.textRect.bottom + pageSize.cy + pageMargin
+            };
+
+            retval.pageRects.push_back(std::move(pageLayout));
+
+            maxHeight = std::max(maxHeight, (float)pageSize.cy + pageMargin * 2 + textHeight);
             leftOffset += pageSize.cx + pageMargin * 2;
             leftOffset += params.pagesSpacing;
         }

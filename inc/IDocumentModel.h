@@ -4,7 +4,6 @@
 #include <vector>
 
 /// Fordward declarations ///
-class IDWriteTextFormat;
 class ID2D1RenderTarget;
 /////////////////////////////
 
@@ -21,6 +20,7 @@ struct IDocumentModelCallback
 enum class TDocumentModelRoles
 {
     HeaderFontRole, // IDWriteTextFormat
+    HeaderTextRole, // LPCWSTR
     ToolbarRole, // Toolbar resources
     PageRole // IDocumentPage
 };

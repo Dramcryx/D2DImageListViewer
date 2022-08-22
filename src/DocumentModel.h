@@ -1,10 +1,13 @@
 #ifndef DOCUMENT_MODEL_H
 #define DOCUMENT_MODEL_H
 
-#include <vector>
-
+#include <ComPtrOwner.h>
 #include <IDocumentModel.h>
 #include <IDocumentPage.h>
+
+#include <vector>
+
+class IDWriteTextFormat;
 
 class CDocumentModel : public IDocumentModel
 {
@@ -23,6 +26,7 @@ public:
 
 private:
     std::vector<IDocumentPage*> pages;
+    CComPtrOwner<IDWriteTextFormat> headerFont;
 };
 
 
