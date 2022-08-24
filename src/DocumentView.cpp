@@ -278,7 +278,7 @@ void CDocumentView::createDependentResources(const D2D1_SIZE_U& size)
 
     OK(this->d2dFactory->CreateHwndRenderTarget(
                     D2D1::RenderTargetProperties(),
-                    D2D1::HwndRenderTargetProperties(this->window, size),
+                    D2D1::HwndRenderTargetProperties(this->window, size, D2D1_PRESENT_OPTIONS_IMMEDIATELY),
                     &this->surfaceContext.renderTarget.ptr));
 
     OK(this->surfaceContext.renderTarget->CreateSolidColorBrush(

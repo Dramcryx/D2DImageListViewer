@@ -8,6 +8,6 @@ add_executable (DocumentViewer src/main.cpp src/DocumentView.cpp src/DocumentMod
 
 target_include_directories (DocumentViewer PUBLIC inc)
 target_compile_options (DocumentViewer PUBLIC -mwindows -municode -g -O2 -flto)
-target_link_libraries (DocumentViewer PUBLIC gdiplus comctl32 d2d1 ole32 windowscodecs dwrite)
+target_link_libraries (DocumentViewer PUBLIC -static gcc stdc++ winpthread -dynamic gdiplus comctl32 d2d1 ole32 windowscodecs dwrite)
 target_link_options (DocumentViewer PUBLIC -mwindows -municode -Wl,--subsystem,windows)
 SET(CMAKE_SHARED_LIBRARY_LINK_CXX_FLAGS)
