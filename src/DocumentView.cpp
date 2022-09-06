@@ -130,6 +130,7 @@ bool CDocumentView::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
         {WM_SIZE, &CDocumentView::OnSize},
         //{WM_SIZING, &CDocumentView::OnSize},
         {WM_MOUSEWHEEL, &CDocumentView::OnScroll},
+        {WM_LBUTTONUP, &CDocumentView::OnLButtonUp}
     };
 
     auto findRes = messageHandlers.find(msg);
@@ -206,6 +207,14 @@ void CDocumentView::OnDraw(WPARAM, LPARAM)
 
                 renderTarget->DrawRectangle(pageLayout.pageRect, this->surfaceContext.pageFrameBrush, 1.0, nullptr);
             }
+            if (activeIndex != -1) {
+                renderTarget->DrawRectangle(
+                    surfaceLayout.pageRects.at(activeIndex).pageRect,
+                    surfaceContext.activePageFrameBrush,
+                    1.f,
+                    nullptr
+                );
+            }
         }
 
         const auto& scrollBarRects = this->helper->GetOrCreateRelativeScrollBarRects(
@@ -262,18 +271,57 @@ void CDocumentView::OnScroll(WPARAM wParam, LPARAM lParam)
 
         if (this->surfaceContext.renderTarget != nullptr
                 && this->surfaceContext.renderTarget->GetSize().height - screenPoint.y < 10) {
-            this->viewProperties.hScrollPos +=  mouseDelta > 0 ? 0.05 : -0.05;
+            this->viewProperties.hScrollPos +=  mouseDelta > 0 ? 0.015 : -0.015;
         } else {
-            this->viewProperties.vScrollPos += mouseDelta > 0 ? 0.05 : -0.05;
+            this->viewProperties.vScrollPos += mouseDelta > 0 ? 0.015 : -0.015;
         }
     }
     assert(InvalidateRect(this->window, nullptr, false));
+}
+
+
+void CDocumentView::OnLButtonUp(WPARAM wParam, LPARAM lParam)
+{
+    (void)wParam; // Ignore key for now
+    int xClient = LOWORD(lParam) / this->viewProperties.zoom;
+    int yClient = HIWORD(lParam) / this->viewProperties.zoom;
+
+    if (model != nullptr && surfaceContext.renderTarget != nullptr) {
+        auto sizeF = surfaceContext.renderTarget->GetSize();
+        const auto& surfaceLayout = this->helper->GetOrCreateLayout(
+            DocumentViewPrivate::CDocumentPagesLayoutParams{
+                    D2D1_SIZE_F{sizeF.width / viewProperties.zoom, sizeF.height / viewProperties.zoom},
+                    5,
+                    -5,
+                    DocumentViewPrivate::CDocumentPagesLayoutParams::HorizontalFlow
+            }, model.get());
+
+        xClient -= surfaceLayout.totalSurfaceSize.width * this->viewProperties.hScrollPos;
+        yClient -= surfaceLayout.totalSurfaceSize.height * this->viewProperties.vScrollPos;
+
+        auto isPtInRect = [xClient, yClient](const D2D1_RECT_F& rect) {
+            return rect.left <= xClient && rect.right >= xClient
+                    && rect.top <= yClient && rect.bottom >= yClient;
+        };
+
+        int oldIndex = std::exchange(this->activeIndex, -1);
+        for (int i = 0; i < surfaceLayout.pageRects.size(); ++i) {
+            if (isPtInRect(surfaceLayout.pageRects[i].pageRect)) {
+                this->activeIndex = i;
+                break;
+            }
+        }
+        if (oldIndex != this->activeIndex) {
+            assert(InvalidateRect(this->window, nullptr, false));
+        }
+    }
 }
 
 void CDocumentView::createDependentResources(const D2D1_SIZE_U& size)
 {
     this->surfaceContext.renderTarget.Reset();
     this->surfaceContext.pageFrameBrush.Reset();
+    this->surfaceContext.activePageFrameBrush.Reset();
     this->surfaceContext.scrollBarBrush.Reset();
 
     OK(this->d2dFactory->CreateHwndRenderTarget(
@@ -284,6 +332,10 @@ void CDocumentView::createDependentResources(const D2D1_SIZE_U& size)
     OK(this->surfaceContext.renderTarget->CreateSolidColorBrush(
                     this->viewProperties.pageFrameColor,
                     &this->surfaceContext.pageFrameBrush.ptr));
+
+    OK(this->surfaceContext.renderTarget->CreateSolidColorBrush(
+                    this->viewProperties.activePageFrameColor,
+                    &this->surfaceContext.activePageFrameBrush.ptr));
 
     OK(this->surfaceContext.renderTarget->CreateSolidColorBrush(
                     this->viewProperties.scrollBarColor,

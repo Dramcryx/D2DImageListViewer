@@ -60,8 +60,8 @@ bool CDocumentModel::CreateObjects(ID2D1RenderTarget* renderTarget)
     pages.clear();
 
     const wchar_t *files[] = {
-        L"pic1.jpg",
-        L"pic2.jpg",
+        L"pic1.png",
+        L"pic2.jpeg",
         L"pic3.jpg",
         L"pic4.jpg"
     };

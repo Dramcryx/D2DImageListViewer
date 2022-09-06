@@ -32,15 +32,17 @@ public:
 
 protected:
     // Windows messages
-    virtual void OnDraw(WPARAM, LPARAM);
-    virtual void OnSize(WPARAM, LPARAM);
-    virtual void OnSizing(WPARAM, LPARAM);
-    virtual void OnScroll(WPARAM, LPARAM);
+    void OnDraw(WPARAM, LPARAM);
+    void OnSize(WPARAM, LPARAM);
+    void OnSizing(WPARAM, LPARAM);
+    void OnScroll(WPARAM, LPARAM);
+    void OnLButtonUp(WPARAM, LPARAM);
 
 private:
     HWND window = NULL;
 
     std::unique_ptr<IDocumentModel> model = nullptr;
+    int activeIndex = -1;
 
     CComPtrOwner<ID2D1Factory> d2dFactory = nullptr;
     std::unique_ptr<DocumentViewPrivate::CDocumentLayoutHelper> helper;
@@ -49,6 +51,7 @@ private:
     struct CSurfaceContext {
         CComPtrOwner<ID2D1HwndRenderTarget> renderTarget = nullptr;
         CComPtrOwner<ID2D1SolidColorBrush> pageFrameBrush = nullptr;
+        CComPtrOwner<ID2D1SolidColorBrush> activePageFrameBrush = nullptr;
         CComPtrOwner<ID2D1SolidColorBrush> scrollBarBrush = nullptr;
     } surfaceContext;
 
@@ -60,6 +63,7 @@ private:
 
         D2D_COLOR_F bkColor{D2D1::ColorF{D2D1::ColorF::WhiteSmoke, 1.0f}};
         D2D_COLOR_F pageFrameColor{D2D1::ColorF{D2D1::ColorF::Black, 1.0f}};
+        D2D_COLOR_F activePageFrameColor{D2D1::ColorF{D2D1::ColorF::Blue, 1.0f}};
         D2D_COLOR_F scrollBarColor{D2D1::ColorF{D2D1::ColorF::Black, .5f}};
     } viewProperties;
 

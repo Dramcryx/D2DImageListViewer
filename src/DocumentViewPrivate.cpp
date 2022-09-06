@@ -218,7 +218,7 @@ const CDocumentPagesLayout& CDocumentLayoutHelper::GetOrCreateLayout(const CDocu
             pageLayout.pageRect = {
                 maxPageWidth / 2 + pageMargin - pageSize.cx / 2,
                 pageLayout.textRect.bottom,
-                maxPageWidth + pageMargin,
+                maxPageWidth / 2 + pageMargin + pageSize.cx / 2,
                 pageLayout.textRect.bottom + pageSize.cy + pageMargin
             };
 
