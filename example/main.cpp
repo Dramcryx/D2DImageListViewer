@@ -2,7 +2,7 @@
 
 #include "DocumentModel.h"
 
-#include <DocumentView.h>
+#include <MainWindow.h>
 
 #include <iostream>
 #include <cassert>
@@ -13,12 +13,11 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR lpCmdLin
 
     OK(CoInitializeEx(NULL, COINIT_MULTITHREADED));
 
-    CDocumentView view;
-    view.Show();
-    view.SetModel(new CDocumentModel());
+    CMainWindow mainWindow;
+    mainWindow.Show();
 
     MSG msg;
-    while (GetMessage(&msg, view, 0, 0) > 0)
+    while (GetMessage(&msg, mainWindow, 0, 0) > 0)
     {
         TranslateMessage(&msg);
         DispatchMessage(&msg);

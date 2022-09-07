@@ -66,6 +66,8 @@ bool CDocumentModel::CreateObjects(ID2D1RenderTarget* renderTarget)
         L"../bin/pic4.jpg"
     };
 
+    currentTarget = renderTarget;
+
     CComPtrOwner<IWICImagingFactory> wicFactory = nullptr;
 
     assert(CoCreateInstance(CLSID_WICImagingFactory,
@@ -109,4 +111,16 @@ void* CDocumentModel::GetData(int index, TDocumentModelRoles role) const
 void CDocumentModel::SetData(int index, TDocumentModelRoles role)
 {
 
+}
+
+void CDocumentModel::AddImageFromFile(const wchar_t* filename)
+{
+    CComPtrOwner<IWICImagingFactory> wicFactory = nullptr;
+
+    assert(CoCreateInstance(CLSID_WICImagingFactory,
+                NULL,
+                CLSCTX_INPROC_SERVER,
+                IID_PPV_ARGS(&wicFactory.ptr)) == S_OK);
+
+    pages.push_back(new CDocumentPage{filename, wicFactory, currentTarget});        
 }

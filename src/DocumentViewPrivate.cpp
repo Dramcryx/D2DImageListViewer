@@ -48,7 +48,11 @@ namespace DocumentViewPrivate {
 const CDocumentPagesLayout& CDocumentLayoutHelper::GetOrCreateLayout(const CDocumentPagesLayoutParams& params, const IDocumentModel* model)
 {
     // If fully matched, return cached layout
-    if (cachedLayout.has_value() && params == lastLayoutRequest.first && model == lastLayoutRequest.second) {
+    if (cachedLayout.has_value()
+            && params == lastLayoutRequest.first
+            && model == lastLayoutRequest.second
+            && model->GetPageCount() == cachedLayout->pageRects.size())
+    {
         return *cachedLayout;
     }
 

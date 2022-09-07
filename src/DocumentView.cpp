@@ -77,10 +77,10 @@ void RegisterDocumentViewClass()
 CDocumentView::CDocumentView(HWND parent)
 {
     RegisterDocumentViewClass();
-    if (CreateWindowEx(WS_EX_ACCEPTFILES, // EX STYLES
+    if (CreateWindowEx(0, // EX STYLES
                 DocumentViewClassName, // CLASS NAME
                 L"Documents viewer", // WINDOW NAME
-                WS_OVERLAPPEDWINDOW, // DEF STYLES
+                WS_VISIBLE | (parent != nullptr ? WS_CHILD : 0), // DEF STYLES
                 0, // X
                 0, // Y
                 600, // W
@@ -249,6 +249,7 @@ void CDocumentView::OnSize(WPARAM, LPARAM lParam)
     int width = LOWORD(lParam);
     int height = HIWORD(lParam);
     this->resize(width, height);
+    std::cout << "size changed: " << width << ' ' << height << "\n";
 }
 
 void CDocumentView::OnSizing(WPARAM, LPARAM lParam)
