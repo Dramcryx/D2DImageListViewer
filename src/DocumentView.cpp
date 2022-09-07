@@ -200,18 +200,23 @@ void CDocumentView::OnDraw(WPARAM, LPARAM)
                 renderTarget->DrawBitmap(
                     pageLayout.page->GetPageBitmap(),
                     pageLayout.pageRect,
-                    1.0,
+                    1.f,
                     D2D1_BITMAP_INTERPOLATION_MODE_NEAREST_NEIGHBOR,
-                    NULL
+                    nullptr
                 );
 
-                renderTarget->DrawRectangle(pageLayout.pageRect, this->surfaceContext.pageFrameBrush, 1.0, nullptr);
+                renderTarget->DrawRectangle(
+                    pageLayout.pageRect,
+                    this->surfaceContext.pageFrameBrush,
+                    1.f / viewProperties.zoom,
+                    nullptr
+                );
             }
             if (activeIndex != -1) {
                 renderTarget->DrawRectangle(
                     surfaceLayout.pageRects.at(activeIndex).pageRect,
                     surfaceContext.activePageFrameBrush,
-                    1.f,
+                    1.f / viewProperties.zoom,
                     nullptr
                 );
             }

@@ -60,10 +60,10 @@ bool CDocumentModel::CreateObjects(ID2D1RenderTarget* renderTarget)
     pages.clear();
 
     const wchar_t *files[] = {
-        L"pic1.png",
-        L"pic2.jpeg",
-        L"pic3.jpg",
-        L"pic4.jpg"
+        L"../bin/pic1.png",
+        L"../bin/pic2.jpeg",
+        L"../bin/pic3.jpg",
+        L"../bin/pic4.jpg"
     };
 
     CComPtrOwner<IWICImagingFactory> wicFactory = nullptr;
