@@ -24,21 +24,6 @@ bool operator==(const D2D1_RECT_F& lhs, const D2D1_RECT_F& rhs);
 bool operator!=(const D2D1_RECT_F& lhs, const D2D1_RECT_F& rhs);
 
 namespace DocumentViewPrivate {
-/// @brief Layout descriptor
-struct CDocumentPagesLayoutParams {
-    D2D1_SIZE_F drawSurfaceSize{0, 0};
-    int pageMargin = 0;
-    int pagesSpacing = 0;
-    
-    TImagesViewAlignment strategy = TImagesViewAlignment::AlignLeft;
-
-    bool operator==(const CDocumentPagesLayoutParams& rhs) const
-    {
-        return std::tie(drawSurfaceSize, pageMargin, pagesSpacing, strategy)
-                    == std::tie(rhs.drawSurfaceSize, rhs.pageMargin, rhs.pagesSpacing, rhs.strategy);
-    }
-};
-
 /// @brief Resulting layout
 struct CDocumentPagesLayout {
     D2D1_SIZE_F totalSurfaceSize = {0.0f, 0.0f};

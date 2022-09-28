@@ -7,7 +7,11 @@
 #include <cassert>
 #include <iostream>
 
+#if 1
 #define DEBUG_VAR(x) std::cout << #x << '=' << x << "\n";
+#else
+#define DEBUG_VAR(x)
+#endif
 
 bool operator==(const D2D_SIZE_F& lhs, const D2D_SIZE_F& rhs)
 {
@@ -362,8 +366,8 @@ const CScrollBarRects& CDocumentLayoutHelper::GetRelativeScrollBarRects()
     CScrollBarRects newRects;
     DEBUG_VAR(renderTargetSize);
 
-    const float hVisibleToTotal = this->renderTargetSize.width / (GetLayout().totalSurfaceSize.width / this->zoom);
-    const float vVisibleToTotal = this->renderTargetSize.height / (GetLayout().totalSurfaceSize.height / this->zoom);
+    const float hVisibleToTotal = this->renderTargetSize.width / (GetLayout().totalSurfaceSize.width * this->zoom);
+    const float vVisibleToTotal = this->renderTargetSize.height / (GetLayout().totalSurfaceSize.height * this->zoom);
     DEBUG_VAR(hVisibleToTotal)
     DEBUG_VAR(vVisibleToTotal)
 
@@ -411,9 +415,9 @@ const CScrollBarRects& CDocumentLayoutHelper::GetRelativeScrollBarRects()
 void CDocumentLayoutHelper::resetCaches()
 {
     this->zoom = std::max(this->zoom, 0.1f);
-    const float vVisibleToTotal = this->renderTargetSize.height / (GetLayout().totalSurfaceSize.height / this->zoom);
+    const float vVisibleToTotal = this->renderTargetSize.height / (GetLayout().totalSurfaceSize.height * this->zoom);
     vScroll = std::clamp(vScroll, -1.0f + vVisibleToTotal, 0.0f);
-    const float hVisibleToTotal = this->renderTargetSize.width / (GetLayout().totalSurfaceSize.width / this->zoom);
+    const float hVisibleToTotal = this->renderTargetSize.width / (GetLayout().totalSurfaceSize.width * this->zoom);
     hScroll = std::clamp(hScroll, -1.0f + hVisibleToTotal, 0.0f);
     this->cachedLayout.reset();
     this->cachedRelativeScrollRects.reset();
