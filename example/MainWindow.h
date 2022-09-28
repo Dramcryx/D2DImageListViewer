@@ -20,9 +20,16 @@ public:
 protected:
     void OnSize(WPARAM, LPARAM);
     void OnDropfiles(WPARAM, LPARAM);
+    void OnDestroy(WPARAM, LPARAM);
 
 private:
     HWND window = nullptr;
+
+    HWND layoutGroup = nullptr;
+    HWND layoutLeftRadio = nullptr;
+    HWND layoutRightRadio = nullptr;
+    HWND layoutHCenterRadio = nullptr;
+    HWND layoutFlowRadio = nullptr;
 
     std::unique_ptr<CDocumentView> imagesView;
     CDocumentModel* model = nullptr;

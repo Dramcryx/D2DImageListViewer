@@ -97,6 +97,52 @@ void CMainWindow::AttachHandle(HWND _window)
 
     imagesView.reset(new CDocumentView{window});
     imagesView->SetModel(model = new CDocumentModel{});
+
+    layoutGroup = CreateWindowEx(WS_EX_WINDOWEDGE,
+                                 L"BUTTON",
+                                 L"Layout mode:",
+                                 WS_VISIBLE | WS_CHILD | BS_GROUPBOX,
+                                 0, 0,
+                                 300, 50,
+                                 window,
+                                 NULL,
+                                 NULL, NULL);
+    layoutLeftRadio = CreateWindowEx(WS_EX_WINDOWEDGE,
+                                     L"BUTTON",
+                                     L"Left",
+                                     WS_VISIBLE | WS_CHILD | BS_AUTORADIOBUTTON | WS_GROUP,
+                                     0, 20,
+                                     75, 20,
+                                     this->window,
+                                     NULL,
+                                     NULL, NULL);
+    layoutRightRadio = CreateWindowEx(WS_EX_WINDOWEDGE,
+                                      L"BUTTON",
+                                      L"Right",
+                                      WS_VISIBLE | WS_CHILD | BS_AUTORADIOBUTTON,
+                                      75, 20,
+                                      75, 20,
+                                      this->window,
+                                      NULL,
+                                      NULL, NULL);
+    layoutHCenterRadio = CreateWindowEx(WS_EX_WINDOWEDGE,
+                                        L"BUTTON",
+                                        L"Center",
+                                        WS_VISIBLE | WS_CHILD | BS_AUTORADIOBUTTON,
+                                        150, 20,
+                                        75, 20,
+                                        this->window,
+                                        NULL,
+                                        NULL, NULL);
+    layoutFlowRadio = CreateWindowEx(WS_EX_WINDOWEDGE,
+                                     L"BUTTON",
+                                     L"Flow",
+                                     WS_VISIBLE | WS_CHILD | BS_AUTORADIOBUTTON,
+                                     225, 20,
+                                     75, 20,
+                                     this->window,
+                                     NULL,
+                                     NULL, NULL);
 }
 
 void CMainWindow::Show()
