@@ -7,6 +7,8 @@
 #include <cassert>
 #include <iostream>
 
+#define DEBUG_VAR(x) std::cout << #x << '=' << x << "\n";
+
 bool operator==(const D2D_SIZE_F& lhs, const D2D_SIZE_F& rhs)
 {
     return std::tie(lhs.height, lhs.width) == std::tie(rhs.height, rhs.width);
@@ -42,38 +44,86 @@ IDWriteFactory* DirectWriteFactory()
 }
 
 std::ostream& operator<<(std::ostream& out, const D2D1_RECT_F& rect);
+std::ostream& operator<<(std::ostream& out, const D2D1_SIZE_F& size);
 
 namespace DocumentViewPrivate {
 
-const CDocumentPagesLayout& CDocumentLayoutHelper::GetOrCreateLayout(const CDocumentPagesLayoutParams& params, const IDocumentModel* model)
+void CDocumentLayoutHelper::SetRenderTargetSize(const D2D1_SIZE_F& renderTargetSize)
 {
-    // If fully matched, return cached layout
-    if (cachedLayout.has_value()
-            && params == lastLayoutRequest.first
-            && model == lastLayoutRequest.second
-            && model->GetPageCount() == cachedLayout->pageRects.size())
-    {
-        return *cachedLayout;
-    }
+    this->renderTargetSize = renderTargetSize;
+    this->resetCaches();
+}
 
-    // otherwise, if size changed, only flow layout requires recalculations, others are not
-    if (cachedLayout.has_value()
-            && params.drawSurfaceSize != lastLayoutRequest.first.drawSurfaceSize
-            && model == lastLayoutRequest.second
-            && params.strategy != CDocumentPagesLayoutParams::HorizontalFlow
-            && lastLayoutRequest.first.strategy != CDocumentPagesLayoutParams::HorizontalFlow)
+void CDocumentLayoutHelper::SetPageMargin(int margin)
+{
+    this->pageMargin = margin;
+    this->resetCaches();
+}
+
+void CDocumentLayoutHelper::SetPageSpacing(int spacing)
+{
+    this->pagesSpacing = spacing;
+    this->resetCaches();
+}
+
+void CDocumentLayoutHelper::SetAlignment(TImagesViewAlignment alignment)
+{
+    this->strategy = alignment;
+    this->resetCaches();
+}
+
+void CDocumentLayoutHelper::SetVScroll(float vScroll)
+{
+    this->vScroll = vScroll;
+    this->resetCaches();
+}
+
+void CDocumentLayoutHelper::AddVScroll(float delta)
+{
+    this->vScroll += delta;
+    this->resetCaches();
+}
+
+void CDocumentLayoutHelper::SetHScroll(float hScroll)
+{
+    this->hScroll = hScroll;
+    this->resetCaches();
+}
+
+void CDocumentLayoutHelper::AddHScroll(float delta)
+{
+    this->hScroll += delta;
+    this->resetCaches();
+}
+
+void CDocumentLayoutHelper::SetZoom(float zoom)
+{
+    this->zoom = zoom;
+    this->resetCaches();
+}
+
+void CDocumentLayoutHelper::AddZoom(float delta)
+{
+    this->zoom += delta;
+    this->resetCaches();
+}
+
+void CDocumentLayoutHelper::SetModel(const IDocumentModel* model)
+{
+    this->model = model;
+    this->resetCaches();
+}
+
+const CDocumentPagesLayout& CDocumentLayoutHelper::GetLayout() const
+{
+    if (cachedLayout.has_value())
     {
         return *cachedLayout;
     }
 
     CDocumentPagesLayout retval;
 
-    if (model->GetPageCount() == 0) {
-        cachedLayout.emplace(std::move(retval));
-        return *cachedLayout;
-    }
-
-    const float pageMargin = float(params.pageMargin);
+    const float pageMargin = this->pageMargin;
 
     auto generateTextLayout = [](IDWriteTextFormat* textFormat, const std::wstring& text, float maxWidth, IDWriteTextLayout** output) {
         OK(DirectWriteFactory()->CreateTextLayout(
@@ -91,9 +141,9 @@ const CDocumentPagesLayout& CDocumentLayoutHelper::GetOrCreateLayout(const CDocu
     };
 
     retval.pageRects.reserve(model->GetPageCount());
-    switch (params.strategy)
+    switch (strategy)
     {
-    case CDocumentPagesLayoutParams::AlignLeft:
+    case TImagesViewAlignment::AlignLeft:
     {
         float topOffset = 0.0;
         float maxWidth = 0.0;
@@ -129,12 +179,12 @@ const CDocumentPagesLayout& CDocumentLayoutHelper::GetOrCreateLayout(const CDocu
 
             maxWidth = std::max(maxWidth, (float)pageSize.cx + pageMargin * 2);
             topOffset += pageSize.cy + pageMargin * 2 + textHeight;
-            topOffset += params.pagesSpacing;
+            topOffset += pagesSpacing;
         }
-        retval.totalSurfaceSize = {maxWidth, topOffset - params.pagesSpacing};
+        retval.totalSurfaceSize = {maxWidth, topOffset - pagesSpacing};
         break;
     }
-    case CDocumentPagesLayoutParams::AlignRight:
+    case TImagesViewAlignment::AlignRight:
     {
         std::vector<const IDocumentPage*> pages;
         pages.reserve(model->GetPageCount());
@@ -180,12 +230,12 @@ const CDocumentPagesLayout& CDocumentLayoutHelper::GetOrCreateLayout(const CDocu
             retval.pageRects.push_back(std::move(pageLayout));
 
             topOffset += pageSize.cy + pageMargin * 2 + textHeight;
-            topOffset += params.pagesSpacing;
+            topOffset += pagesSpacing;
         }
-        retval.totalSurfaceSize = {maxPageWidth + pageMargin * 2, topOffset - params.pagesSpacing};
+        retval.totalSurfaceSize = {maxPageWidth + pageMargin * 2, topOffset - pagesSpacing};
         break;
     }
-    case CDocumentPagesLayoutParams::AlignHCenter:
+    case TImagesViewAlignment::AlignHCenter:
     {
         std::vector<const IDocumentPage*> pages;
         pages.reserve(model->GetPageCount());
@@ -229,28 +279,30 @@ const CDocumentPagesLayout& CDocumentLayoutHelper::GetOrCreateLayout(const CDocu
             retval.pageRects.push_back(std::move(pageLayout));
 
             topOffset += pageSize.cy + pageMargin * 2 + textHeight;
-            topOffset += params.pagesSpacing;
+            topOffset += pagesSpacing;
         }
-        retval.totalSurfaceSize = {maxPageWidth + pageMargin * 2, topOffset - params.pagesSpacing};
+        retval.totalSurfaceSize = {maxPageWidth + pageMargin * 2, topOffset - pagesSpacing};
         break;
     }
-    case CDocumentPagesLayoutParams::HorizontalFlow:
+    case TImagesViewAlignment::HorizontalFlow:
     {
         float totalLeftOffset = 0.0;
 
         float topOffset = 0.0;
         float leftOffset = 0.0;
         float maxHeight = 0.0;
+
+        const D2D1_SIZE_F drawSurfaceSize{renderTargetSize.width / this->zoom, renderTargetSize.height / this->zoom};
         for (int i = 0; i < model->GetPageCount(); ++i) {
             auto page = reinterpret_cast<IDocumentPage*>(model->GetData(i, TDocumentModelRoles::PageRole));
             auto pageSize = page->GetPageSize();
 
-            if (leftOffset != 0.0 && (pageSize.cx + leftOffset + pageMargin * 2 > params.drawSurfaceSize.width)) {
+            if (leftOffset != 0.0 && (pageSize.cx + leftOffset + pageMargin * 2 > drawSurfaceSize.width)) {
                 totalLeftOffset = std::max(totalLeftOffset, leftOffset);
                 leftOffset = 0.0;
 
                 topOffset += maxHeight + pageMargin * 2;
-                topOffset += params.pagesSpacing;
+                topOffset += pagesSpacing;
                 maxHeight = 0.0;
             }
 
@@ -282,100 +334,89 @@ const CDocumentPagesLayout& CDocumentLayoutHelper::GetOrCreateLayout(const CDocu
 
             maxHeight = std::max(maxHeight, (float)pageSize.cy + pageMargin * 2 + textHeight);
             leftOffset += pageSize.cx + pageMargin * 2;
-            leftOffset += params.pagesSpacing;
+            leftOffset += pagesSpacing;
         }
         totalLeftOffset = std::max(totalLeftOffset, leftOffset);
-        retval.totalSurfaceSize = {totalLeftOffset - params.pagesSpacing, topOffset + maxHeight - params.pagesSpacing};
+        retval.totalSurfaceSize = {totalLeftOffset - pagesSpacing, topOffset + maxHeight - pagesSpacing};
         break;
     }
     default:
         break;
     }
+
+    retval.viewportOffset = {
+        retval.totalSurfaceSize.width * this->zoom * this->hScroll,
+        retval.totalSurfaceSize.height * this->zoom * this->vScroll
+    };
+
     cachedLayout.emplace(std::move(retval));
-
-    lastLayoutRequest.first = params;
-    lastLayoutRequest.second = model;
-
     return *cachedLayout;
 }
 
-const CScrollBarRects& CDocumentLayoutHelper::GetOrCreateRelativeScrollBarRects(
-        const D2D1_SIZE_F& zoomedTotalSurfaceSize, const D2D1_SIZE_F& visibleSurfaceSize, float vScroll, float hScroll)
+const CScrollBarRects& CDocumentLayoutHelper::GetRelativeScrollBarRects()
 {
-    // if surface size not changed, we can just change the position
-    if (cachedRelativeScrollRects.has_value()
-            && zoomedTotalSurfaceSize == lastRelativeScrollBarsRequest.zoomedTotalSurfaceSize
-            && visibleSurfaceSize == lastRelativeScrollBarsRequest.visibleSurfaceSize)
-    {
-        // but if scroll pos is not changed, return cache
-        if (vScroll == lastRelativeScrollBarsRequest.vScroll && hScroll == lastRelativeScrollBarsRequest.hScroll) {
-            return *cachedRelativeScrollRects;
-        }
-        // finally, move scroll rects and update request cache
-        {
-            const float newHScrollBarLeft = -visibleSurfaceSize.width * hScroll;
-            auto& hScrollBarRect = cachedRelativeScrollRects->hScrollBar->rect;
-            const float hScrollBarWidth = hScrollBarRect.right - hScrollBarRect.left;
-            hScrollBarRect.left = newHScrollBarLeft;
-            hScrollBarRect.right = newHScrollBarLeft + hScrollBarWidth;
-            lastRelativeScrollBarsRequest.hScroll = hScroll;
-        }
-
-        {
-            const float newVScrollBarTop = -visibleSurfaceSize.height * vScroll;
-            auto& vScrollBarRect = cachedRelativeScrollRects->vScrollBar->rect;
-            const float vScrollBarHeight = vScrollBarRect.bottom - vScrollBarRect.top;
-            vScrollBarRect.top = newVScrollBarTop;
-            vScrollBarRect.bottom = newVScrollBarTop + vScrollBarHeight;
-            lastRelativeScrollBarsRequest.vScroll = vScroll;
-        }
+    if (cachedRelativeScrollRects.has_value()) {
         return *cachedRelativeScrollRects;
     }
 
-
-    cachedRelativeScrollRects.reset();
     CScrollBarRects newRects;
+    DEBUG_VAR(renderTargetSize);
 
-    const float hVisibleToTotal = visibleSurfaceSize.width / zoomedTotalSurfaceSize.width;
-    const float vVisibleToTotal = visibleSurfaceSize.height / zoomedTotalSurfaceSize.height;
+    const float hVisibleToTotal = this->renderTargetSize.width / (GetLayout().totalSurfaceSize.width / this->zoom);
+    const float vVisibleToTotal = this->renderTargetSize.height / (GetLayout().totalSurfaceSize.height / this->zoom);
+    DEBUG_VAR(hVisibleToTotal)
+    DEBUG_VAR(vVisibleToTotal)
 
     constexpr float scrollBarThickness = 5.0f;
     constexpr float scrollBarRadius = 3.0f;
 
     if (hVisibleToTotal < 1.0f)
     {
-        const float hScrollBarWidth = visibleSurfaceSize.width * hVisibleToTotal;
-        const float hScrollBarLeft = -visibleSurfaceSize.width * hScroll;
-        const float hScrollBarTop = visibleSurfaceSize.height - scrollBarThickness;
+        const float hScrollBarWidth = this->renderTargetSize.width * hVisibleToTotal;
+        const float hScrollBarLeft = -this->renderTargetSize.width * hScroll;
+        const float hScrollBarTop = this->renderTargetSize.height - scrollBarThickness;
+        DEBUG_VAR(hScrollBarWidth)
+        DEBUG_VAR(hScrollBarLeft)
+        DEBUG_VAR(hScrollBarTop)
         D2D1_RECT_F hScrollBarRect{
             hScrollBarLeft,
             hScrollBarTop,
             hScrollBarLeft + hScrollBarWidth,
             hScrollBarTop + scrollBarThickness
         };
+        DEBUG_VAR(hScrollBarRect)
         newRects.hScrollBar = {hScrollBarRect, scrollBarRadius, scrollBarRadius};
     }
 
     if (vVisibleToTotal < 1.0f)
     {
-        const float vScrollBarHeight = visibleSurfaceSize.height * vVisibleToTotal;
-        const float vScrollBarLeft = visibleSurfaceSize.width - scrollBarThickness;
-        const float vScrollBarTop = -visibleSurfaceSize.height * vScroll;
+        const float vScrollBarHeight = this->renderTargetSize.height * vVisibleToTotal;
+        const float vScrollBarLeft = this->renderTargetSize.width - scrollBarThickness;
+        const float vScrollBarTop = -this->renderTargetSize.height * vScroll;
+        DEBUG_VAR(vScrollBarHeight)
+        DEBUG_VAR(vScrollBarLeft)
+        DEBUG_VAR(vScrollBarTop)
         D2D1_RECT_F vScrollBarRect{
             vScrollBarLeft,
             vScrollBarTop,
             vScrollBarLeft + scrollBarThickness,
             vScrollBarTop + vScrollBarHeight
         };
+        DEBUG_VAR(vScrollBarRect)
         newRects.vScrollBar = {vScrollBarRect, scrollBarRadius, scrollBarRadius};
     }
-
-    lastRelativeScrollBarsRequest.zoomedTotalSurfaceSize = zoomedTotalSurfaceSize;
-    lastRelativeScrollBarsRequest.visibleSurfaceSize = visibleSurfaceSize;
-    lastRelativeScrollBarsRequest.vScroll = vScroll;
-    lastRelativeScrollBarsRequest.hScroll = hScroll;
-
     return *(cachedRelativeScrollRects = newRects);
+}
+
+void CDocumentLayoutHelper::resetCaches()
+{
+    this->zoom = std::max(this->zoom, 0.1f);
+    const float vVisibleToTotal = this->renderTargetSize.height / (GetLayout().totalSurfaceSize.height / this->zoom);
+    vScroll = std::clamp(vScroll, -1.0f + vVisibleToTotal, 0.0f);
+    const float hVisibleToTotal = this->renderTargetSize.width / (GetLayout().totalSurfaceSize.width / this->zoom);
+    hScroll = std::clamp(hScroll, -1.0f + hVisibleToTotal, 0.0f);
+    this->cachedLayout.reset();
+    this->cachedRelativeScrollRects.reset();
 }
 
 }

@@ -57,10 +57,6 @@ private:
 
     // General properties
     struct CViewProperties {
-        float vScrollPos = 0.0;
-        float hScrollPos = 0.0;
-        float zoom = 1.0;
-
         D2D_COLOR_F bkColor{D2D1::ColorF{D2D1::ColorF::WhiteSmoke, 1.0f}};
         D2D_COLOR_F pageFrameColor{D2D1::ColorF{D2D1::ColorF::Black, 1.0f}};
         D2D_COLOR_F activePageFrameColor{D2D1::ColorF{D2D1::ColorF::Blue, 1.0f}};
