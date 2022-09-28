@@ -2,6 +2,7 @@
 
 #include <shellapi.h>
 #include <winuser.rh>
+#include <windowsx.h>
 
 #include <cassert>
 #include <optional>
@@ -116,6 +117,7 @@ void CMainWindow::AttachHandle(HWND _window)
                                      this->window,
                                      NULL,
                                      NULL, NULL);
+    Button_SetCheck(layoutLeftRadio, BST_CHECKED);
     layoutRightRadio = CreateWindowEx(WS_EX_WINDOWEDGE,
                                       L"BUTTON",
                                       L"Right",
@@ -154,7 +156,8 @@ bool CMainWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
 {
     static std::unordered_map<UINT, std::function<void(CMainWindow*, WPARAM, LPARAM)>> messageHandlers {
         {WM_SIZE, &CMainWindow::OnSize},
-        {WM_DROPFILES, &CMainWindow::OnDropfiles}
+        {WM_DROPFILES, &CMainWindow::OnDropfiles},
+        {WM_COMMAND, &CMainWindow::OnCommand}
     };
 
     auto findRes = messageHandlers.find(msg);
@@ -187,4 +190,27 @@ void CMainWindow::OnDropfiles(WPARAM wParam, LPARAM)
     }
     DragFinish(dropHandle);
     assert(InvalidateRect(*imagesView, nullptr, false));
+}
+
+void CMainWindow::OnCommand(WPARAM wParam, LPARAM lParam)
+{
+    if (HIWORD(wParam) == BN_CLICKED) {
+        OnBnClicked((HWND)lParam);
+    }
+}
+
+void CMainWindow::OnBnClicked(HWND button)
+{
+    if (button == layoutLeftRadio) {
+        imagesView->SetAlignment(TImagesViewAlignment::AlignLeft);
+    }
+    if (button == layoutRightRadio) {
+        imagesView->SetAlignment(TImagesViewAlignment::AlignRight);
+    }
+    if (button == layoutHCenterRadio) {
+        imagesView->SetAlignment(TImagesViewAlignment::AlignHCenter);
+    }
+    if (button == layoutFlowRadio) {
+        imagesView->SetAlignment(TImagesViewAlignment::HorizontalFlow);
+    }
 }

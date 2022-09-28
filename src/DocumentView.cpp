@@ -135,9 +135,7 @@ bool CDocumentView::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
 {
     static std::unordered_map<UINT, std::function<void(CDocumentView*, WPARAM, LPARAM)>> messageHandlers {
         {WM_PAINT, &CDocumentView::OnDraw},
-        //{WM_ERASEBKGND, &CDocumentView::OnDraw},
         {WM_SIZE, &CDocumentView::OnSize},
-        //{WM_SIZING, &CDocumentView::OnSize},
         {WM_MOUSEWHEEL, &CDocumentView::OnScroll},
         {WM_LBUTTONUP, &CDocumentView::OnLButtonUp}
     };
@@ -149,6 +147,17 @@ bool CDocumentView::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
         return true;
     }
     return false;
+}
+
+TImagesViewAlignment CDocumentView::GetAlignment() const
+{
+    return helper->GetAlignment();
+}
+
+void CDocumentView::SetAlignment(TImagesViewAlignment alignment)
+{
+    helper->SetAlignment(alignment);
+    assert(InvalidateRect(this->window, nullptr, false));
 }
 
 void CDocumentView::OnDraw(WPARAM, LPARAM)
@@ -236,16 +245,6 @@ void CDocumentView::OnSize(WPARAM, LPARAM lParam)
     int width = LOWORD(lParam);
     int height = HIWORD(lParam);
     this->resize(width, height);
-}
-
-void CDocumentView::OnSizing(WPARAM, LPARAM lParam)
-{
-    auto asRect = (RECT*)lParam;
-
-    int newWidth = asRect->right - asRect->left - GetSystemMetrics(SM_CXVSCROLL);
-    int newHeight = asRect->bottom - asRect->top - GetSystemMetrics(SM_CXHSCROLL);
-    
-    this->resize(newWidth, newHeight);
 }
 
 void CDocumentView::OnScroll(WPARAM wParam, LPARAM lParam)

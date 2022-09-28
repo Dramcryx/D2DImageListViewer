@@ -20,7 +20,8 @@ public:
 protected:
     void OnSize(WPARAM, LPARAM);
     void OnDropfiles(WPARAM, LPARAM);
-    void OnDestroy(WPARAM, LPARAM);
+    void OnCommand(WPARAM, LPARAM);
+    void OnBnClicked(HWND button);
 
 private:
     HWND window = nullptr;

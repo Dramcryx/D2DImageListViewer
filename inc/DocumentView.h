@@ -4,6 +4,7 @@
 #include <Defines.h>
 #include <ComPtrOwner.h>
 #include <IDocumentModel.h>
+#include <DocumentViewParams.h>
 
 #include <d2d1_1.h>
 #include <windows.h>
@@ -30,11 +31,13 @@ public:
 
     bool HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam);
 
+    TImagesViewAlignment GetAlignment() const;
+    void SetAlignment(TImagesViewAlignment alignment);
+
 protected:
     // Windows messages
     void OnDraw(WPARAM, LPARAM);
     void OnSize(WPARAM, LPARAM);
-    void OnSizing(WPARAM, LPARAM);
     void OnScroll(WPARAM, LPARAM);
     void OnLButtonUp(WPARAM, LPARAM);
 

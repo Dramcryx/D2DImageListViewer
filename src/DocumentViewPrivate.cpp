@@ -7,7 +7,7 @@
 #include <cassert>
 #include <iostream>
 
-#if 1
+#ifdef DEBUG
 #define DEBUG_VAR(x) std::cout << #x << '=' << x << "\n";
 #else
 #define DEBUG_VAR(x)
