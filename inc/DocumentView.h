@@ -25,6 +25,7 @@ public:
     void AttachHandle(HWND window);
     operator HWND() { return window; }
     void Show();
+    void Redraw();
 
     void SetModel(IDocumentModel* model);
     IDocumentModel* GetModel() const;

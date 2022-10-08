@@ -117,6 +117,13 @@ void CDocumentView::Show()
     ShowWindow(window, SW_NORMAL);
 }
 
+void CDocumentView::Redraw()
+{
+    assert(this->window != nullptr);
+    assert(InvalidateRect(this->window, NULL, false));
+    assert(UpdateWindow(this->window));
+}
+
 void CDocumentView::SetModel(IDocumentModel* _model)
 {
     this->model.reset(_model);
@@ -151,17 +158,18 @@ bool CDocumentView::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
 
 TImagesViewAlignment CDocumentView::GetAlignment() const
 {
-    return helper->GetAlignment();
+    return this->helper->GetAlignment();
 }
 
 void CDocumentView::SetAlignment(TImagesViewAlignment alignment)
 {
-    helper->SetAlignment(alignment);
-    assert(InvalidateRect(this->window, nullptr, false));
+    this->helper->SetAlignment(alignment);
+    this->Redraw();
 }
 
 void CDocumentView::OnDraw(WPARAM, LPARAM)
 {
+    std::cout << "Redraw occured: " << GetTickCount64() << "\n";
     PAINTSTRUCT ps;
     BeginPaint(this->window, &ps);
 
@@ -267,7 +275,7 @@ void CDocumentView::OnScroll(WPARAM wParam, LPARAM lParam)
             this->helper->AddVScroll(mouseDelta > 0 ? 0.015 : -0.015);
         }
     }
-    assert(InvalidateRect(this->window, nullptr, false));
+    this->Redraw();
 }
 
 
@@ -297,7 +305,7 @@ void CDocumentView::OnLButtonUp(WPARAM wParam, LPARAM lParam)
             }
         }
         if (oldIndex != this->activeIndex) {
-            assert(InvalidateRect(this->window, nullptr, false));
+            this->Redraw();
         }
     }
 }
@@ -336,7 +344,7 @@ void CDocumentView::resize(int width, int height)
     if (this->surfaceContext.renderTarget != nullptr)
     {
         OK(this->surfaceContext.renderTarget->Resize(D2D1_SIZE_U{width, height}));
-        assert(InvalidateRect(this->window, nullptr, false));
+        this->Redraw();
     }
     this->helper->SetRenderTargetSize(D2D1_SIZE_F{float{width}, float{height}});
 }

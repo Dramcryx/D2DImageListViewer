@@ -189,7 +189,7 @@ void CMainWindow::OnDropfiles(WPARAM wParam, LPARAM)
         model->AddImageFromFile(filename);
     }
     DragFinish(dropHandle);
-    assert(InvalidateRect(*imagesView, nullptr, false));
+    imagesView->Redraw();
 }
 
 void CMainWindow::OnCommand(WPARAM wParam, LPARAM lParam)
