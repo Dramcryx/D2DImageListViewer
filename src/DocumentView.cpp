@@ -345,7 +345,7 @@ void CDocumentView::createDependentResources()
 
     CComPtrOwner<ID3D11Device> d3dDevice;
     CComPtrOwner<ID3D11DeviceContext> d3dDeviceContext;
-    OK(
+    auto deviceCreationResult =
         ::D3D11CreateDevice(
             nullptr,                    // specify nullptr to use the default adapter
             D3D_DRIVER_TYPE_HARDWARE,
@@ -357,8 +357,23 @@ void CDocumentView::createDependentResources()
             &d3dDevice.ptr,
             nullptr,
             &d3dDeviceContext.ptr
-        )
-    );
+        );
+    if (deviceCreationResult == DXGI_ERROR_UNSUPPORTED) {
+        OK(
+            ::D3D11CreateDevice(
+                nullptr,                    // specify nullptr to use the default adapter
+                D3D_DRIVER_TYPE_WARP,
+                nullptr,                    // leave as nullptr if hardware is used
+                creationFlags,              // optionally set debug and Direct2D compatibility flags
+                featureLevels,
+                ARRAYSIZE(featureLevels),
+                D3D11_SDK_VERSION,          // always set this to D3D11_SDK_VERSION
+                &d3dDevice.ptr,
+                nullptr,
+                &d3dDeviceContext.ptr
+            )
+        );
+    }
     CComPtrOwner<IDXGIDevice1> dxgiDevice;
     // Obtain the underlying DXGI device of the Direct3D11 device.
     OK(d3dDevice->QueryInterface(&dxgiDevice.ptr));
