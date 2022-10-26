@@ -8,7 +8,7 @@ add_library(imageviewer src/DocumentView.cpp src/DocumentViewPrivate.cpp)
 
 target_include_directories (imageviewer PUBLIC inc src)
 target_compile_options (imageviewer PUBLIC -mwindows -municode -g -O2)
-target_link_libraries (imageviewer PUBLIC -static gcc stdc++ winpthread -dynamic gdiplus comctl32 d2d1 ole32 windowscodecs dwrite)
+target_link_libraries (imageviewer PUBLIC -static gcc stdc++ winpthread -dynamic gdiplus comctl32 d2d1 d3d11 dxguid ole32 windowscodecs dwrite)
 
 
 add_executable (DocumentViewer example/main.cpp example/DocumentModel.cpp example/DocumentPage.cpp example/MainWindow.cpp)

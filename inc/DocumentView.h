@@ -7,6 +7,7 @@
 #include <DocumentViewParams.h>
 
 #include <d2d1_1.h>
+#include <dxgi1_2.h>
 #include <windows.h>
 
 #include <memory>
@@ -48,12 +49,13 @@ private:
     std::unique_ptr<IDocumentModel> model = nullptr;
     int activeIndex = -1;
 
-    CComPtrOwner<ID2D1Factory> d2dFactory = nullptr;
+    CComPtrOwner<ID2D1Factory1> d2dFactory = nullptr;
     std::unique_ptr<DocumentViewPrivate::CDocumentLayoutHelper> helper;
 
     // Direct2D objects
     struct CSurfaceContext {
-        CComPtrOwner<ID2D1HwndRenderTarget> renderTarget = nullptr;
+        CComPtrOwner<ID2D1DeviceContext> renderTarget = nullptr;
+        CComPtrOwner<IDXGISwapChain1> swapChain = nullptr;
         CComPtrOwner<ID2D1SolidColorBrush> pageFrameBrush = nullptr;
         CComPtrOwner<ID2D1SolidColorBrush> activePageFrameBrush = nullptr;
         CComPtrOwner<ID2D1SolidColorBrush> scrollBarBrush = nullptr;

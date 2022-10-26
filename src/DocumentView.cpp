@@ -5,6 +5,8 @@
 #include <Direct2DMatrixSwitcher.h>
 #include <IDocumentPage.h>
 
+#include <d3d11_2.h>
+
 #include <winuser.rh>
 
 #include <cassert>
@@ -245,6 +247,11 @@ void CDocumentView::OnDraw(WPARAM, LPARAM)
         this->createDependentResources(size);
     }
 
+    DXGI_PRESENT_PARAMETERS params{
+        0, nullptr, nullptr, nullptr
+    };
+    OK(this->surfaceContext.swapChain->Present1(1, 0, &params));
+
     EndPaint(window, &ps);
 }
 
@@ -316,12 +323,109 @@ void CDocumentView::createDependentResources(const D2D1_SIZE_U& size)
     this->surfaceContext.pageFrameBrush.Reset();
     this->surfaceContext.activePageFrameBrush.Reset();
     this->surfaceContext.scrollBarBrush.Reset();
+///////////////////
+    // This flag is required in order to enable compatibility with Direct2D.
+    UINT creationFlags = D3D11_CREATE_DEVICE_BGRA_SUPPORT;
+    D3D_FEATURE_LEVEL featureLevels[] = {
+        D3D_FEATURE_LEVEL_11_1,
+        D3D_FEATURE_LEVEL_11_0,
+        D3D_FEATURE_LEVEL_10_1,
+        D3D_FEATURE_LEVEL_10_0,
+        D3D_FEATURE_LEVEL_9_3,
+        D3D_FEATURE_LEVEL_9_1
+    };
 
-    OK(this->d2dFactory->CreateHwndRenderTarget(
-                    D2D1::RenderTargetProperties(),
-                    D2D1::HwndRenderTargetProperties(this->window, size, D2D1_PRESENT_OPTIONS_IMMEDIATELY),
-                    &this->surfaceContext.renderTarget.ptr));
+    CComPtrOwner<ID3D11Device> d3dDevice;
+    CComPtrOwner<ID3D11DeviceContext> d3dDeviceContext;
+    OK(
+        ::D3D11CreateDevice(
+            nullptr,                    // specify nullptr to use the default adapter
+            D3D_DRIVER_TYPE_HARDWARE,
+            nullptr,                    // leave as nullptr if hardware is used
+            creationFlags,              // optionally set debug and Direct2D compatibility flags
+            featureLevels,
+            ARRAYSIZE(featureLevels),
+            D3D11_SDK_VERSION,          // always set this to D3D11_SDK_VERSION
+            &d3dDevice.ptr,
+            nullptr,
+            &d3dDeviceContext.ptr
+        )
+    );
+    CComPtrOwner<IDXGIDevice1> dxgiDevice;
+    // Obtain the underlying DXGI device of the Direct3D11 device.
+    OK(d3dDevice->QueryInterface(&dxgiDevice.ptr));
 
+    CComPtrOwner<ID2D1Device> d2dDevice;
+    // Obtain the Direct2D device for 2-D rendering.
+    OK(d2dFactory->CreateDevice(dxgiDevice.ptr, &d2dDevice.ptr));
+
+    // Get Direct2D device's corresponding device context object.
+    OK(d2dDevice->CreateDeviceContext(D2D1_DEVICE_CONTEXT_OPTIONS_NONE, &this->surfaceContext.renderTarget.ptr));
+
+    DXGI_SWAP_CHAIN_DESC1 swapChainDesc = {0};
+    swapChainDesc.Width = 0;                           // use automatic sizing
+    swapChainDesc.Height = 0;
+    swapChainDesc.Format = DXGI_FORMAT_B8G8R8A8_UNORM; // this is the most common swapchain format
+    swapChainDesc.Stereo = false; 
+    swapChainDesc.SampleDesc.Count = 1;                // don't use multi-sampling
+    swapChainDesc.SampleDesc.Quality = 0;
+    swapChainDesc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
+    swapChainDesc.BufferCount = 2;                     // use double buffering to enable flip
+    swapChainDesc.Scaling = DXGI_SCALING_NONE;
+    swapChainDesc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL; // all apps must use this SwapEffect
+    swapChainDesc.Flags = 0;
+
+     // Identify the physical adapter (GPU or card) this device is runs on.
+    CComPtrOwner<IDXGIAdapter> dxgiAdapter;
+    OK(dxgiDevice->GetAdapter(&dxgiAdapter.ptr));
+
+    // Get the factory object that created the DXGI device.
+    CComPtrOwner<IDXGIFactory2> dxgiFactory;
+    OK(dxgiAdapter->GetParent(IID_IDXGIFactory2, reinterpret_cast<void**>(&dxgiFactory.ptr)));
+
+    // Get the final swap chain for this window from the DXGI factory.
+    OK(dxgiFactory->CreateSwapChainForHwnd(
+            d3dDevice.ptr,
+            this->window,
+            &swapChainDesc,
+            nullptr,
+            nullptr, // allow on all displays
+            &this->surfaceContext.swapChain.ptr));
+
+    // Ensure that DXGI doesn't queue more than one frame at a time.
+    OK(dxgiDevice->SetMaximumFrameLatency(1));
+
+    // Get the backbuffer for this window which is be the final 3D render target.
+    CComPtrOwner<ID3D11Texture2D> backBuffer;
+    OK(this->surfaceContext.swapChain->GetBuffer(0, IID_ID3D11Texture2D,reinterpret_cast<void**>(&backBuffer.ptr)));
+
+    // Now we set up the Direct2D render target bitmap linked to the swapchain.
+    // Whenever we render to this bitmap, it is directly rendered to the
+    // swap chain associated with the window.
+    D2D1_BITMAP_PROPERTIES1 bitmapProperties =
+        D2D1::BitmapProperties1(
+            D2D1_BITMAP_OPTIONS_TARGET | D2D1_BITMAP_OPTIONS_CANNOT_DRAW,
+            D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_IGNORE),
+            96,
+            96);
+
+    // Direct2D needs the dxgi version of the backbuffer surface pointer.
+    CComPtrOwner<IDXGISurface> dxgiBackBuffer;
+    OK(this->surfaceContext.swapChain->GetBuffer(0, IID_IDXGISurface1, reinterpret_cast<void**>(&dxgiBackBuffer.ptr)));
+
+    CComPtrOwner<ID2D1Bitmap1> targetBitmap = nullptr;
+    // Get a D2D surface from the DXGI back buffer to use as the D2D render target.
+    OK(this->surfaceContext.renderTarget->CreateBitmapFromDxgiSurface(
+            dxgiBackBuffer.ptr,
+            &bitmapProperties,
+            &targetBitmap.ptr
+        )
+    );
+
+    // Now we can set the Direct2D render target.
+    this->surfaceContext.renderTarget->SetTarget(targetBitmap.ptr);
+
+    ///////////////////
     OK(this->surfaceContext.renderTarget->CreateSolidColorBrush(
                     this->viewProperties.pageFrameColor,
                     &this->surfaceContext.pageFrameBrush.ptr));
@@ -343,8 +447,33 @@ void CDocumentView::resize(int width, int height)
 {
     if (this->surfaceContext.renderTarget != nullptr)
     {
-        OK(this->surfaceContext.renderTarget->Resize(D2D1_SIZE_U{width, height}));
-        this->Redraw();
+        this->surfaceContext.renderTarget->SetTarget(nullptr);
+        OK(this->surfaceContext.swapChain->ResizeBuffers(0, 0, 0, DXGI_FORMAT_UNKNOWN, 0));
+        // Now we set up the Direct2D render target bitmap linked to the swapchain.
+        // Whenever we render to this bitmap, it is directly rendered to the
+        // swap chain associated with the window.
+        D2D1_BITMAP_PROPERTIES1 bitmapProperties =
+            D2D1::BitmapProperties1(
+                D2D1_BITMAP_OPTIONS_TARGET | D2D1_BITMAP_OPTIONS_CANNOT_DRAW,
+                D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_IGNORE),
+                96,
+                96);
+
+        // Direct2D needs the dxgi version of the backbuffer surface pointer.
+        CComPtrOwner<IDXGISurface> dxgiBackBuffer;
+        OK(this->surfaceContext.swapChain->GetBuffer(0, IID_IDXGISurface1, reinterpret_cast<void**>(&dxgiBackBuffer.ptr)));
+
+        CComPtrOwner<ID2D1Bitmap1> targetBitmap = nullptr;
+        // Get a D2D surface from the DXGI back buffer to use as the D2D render target.
+        OK(this->surfaceContext.renderTarget->CreateBitmapFromDxgiSurface(
+                dxgiBackBuffer.ptr,
+                &bitmapProperties,
+                &targetBitmap.ptr
+            )
+        );
+
+        // Now we can set the Direct2D render target.
+        this->surfaceContext.renderTarget->SetTarget(targetBitmap.ptr);
     }
     this->helper->SetRenderTargetSize(D2D1_SIZE_F{float{width}, float{height}});
 }

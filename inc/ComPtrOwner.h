@@ -9,6 +9,9 @@ struct CComPtrOwner
 {
     T* ptr = nullptr;
 
+    CComPtrOwner() : ptr{nullptr}
+    {}
+
     CComPtrOwner(T* _ptr) : ptr{_ptr}
     {
 #if 0
