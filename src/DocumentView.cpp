@@ -129,8 +129,8 @@ void CDocumentView::Redraw()
 void CDocumentView::SetModel(IDocumentModel* _model)
 {
     this->model.reset(_model);
-    if (this->surfaceContext.renderTarget != nullptr && this->model != nullptr) {
-        this->model->CreateObjects(this->surfaceContext.renderTarget);
+    if (this->surfaceContext.deviceContext != nullptr && this->model != nullptr) {
+        this->model->CreateObjects(this->surfaceContext.deviceContext);
     }
     this->helper->SetModel(this->model.get());
 }
@@ -178,9 +178,10 @@ void CDocumentView::OnDraw(WPARAM, LPARAM)
     RECT rect = ps.rcPaint;
     auto size = D2D1::SizeU(rect.right - rect.left, rect.bottom - rect.top);
 
-    auto& renderTarget = this->surfaceContext.renderTarget;
+    auto& renderTarget = this->surfaceContext.deviceContext;
     if (renderTarget == nullptr) {
-        this->createDependentResources(size);
+        this->createDependentResources();
+        this->createSwapChainBitmap();
     }
 
     D2D1_SIZE_F sizeF{float(size.width), float(size.height)};
@@ -198,7 +199,7 @@ void CDocumentView::OnDraw(WPARAM, LPARAM)
         const auto& surfaceLayout = this->helper->GetLayout();
         {
             CDirect2DMatrixSwitcher switcher{
-                this->surfaceContext.renderTarget,
+                this->surfaceContext.deviceContext,
                 D2D1::Matrix3x2F::Scale(this->helper->GetZoom(), this->helper->GetZoom())
                     * D2D1::Matrix3x2F::Translation(surfaceLayout.viewportOffset.width, surfaceLayout.viewportOffset.height)};
 
@@ -244,13 +245,19 @@ void CDocumentView::OnDraw(WPARAM, LPARAM)
     }
     
     if (renderTarget->EndDraw() == D2DERR_RECREATE_TARGET) {
-        this->createDependentResources(size);
+        this->createDependentResources();
+        this->createSwapChainBitmap();
     }
 
     DXGI_PRESENT_PARAMETERS params{
         0, nullptr, nullptr, nullptr
     };
-    OK(this->surfaceContext.swapChain->Present1(1, 0, &params));
+    if (auto hr = this->surfaceContext.swapChain->Present1(1, 0, &params); hr == DXGI_STATUS_OCCLUDED) {
+        this->createDependentResources();
+        this->createSwapChainBitmap();
+    } else {
+        OK(hr);
+    }
 
     EndPaint(window, &ps);
 }
@@ -274,8 +281,8 @@ void CDocumentView::OnScroll(WPARAM wParam, LPARAM lParam)
         POINT screenPoint{LOWORD(lParam), HIWORD(lParam)};
         ScreenToClient(window, &screenPoint);
 
-        if (this->surfaceContext.renderTarget != nullptr
-                && this->surfaceContext.renderTarget->GetSize().height - screenPoint.y < 10 )
+        if (this->surfaceContext.deviceContext != nullptr
+                && this->surfaceContext.deviceContext->GetSize().height - screenPoint.y < 10 )
         {
             this->helper->AddHScroll(mouseDelta > 0 ? 0.015 : -0.015);
         } else {
@@ -292,8 +299,8 @@ void CDocumentView::OnLButtonUp(WPARAM wParam, LPARAM lParam)
     int xClient = LOWORD(lParam) / this->helper->GetZoom();
     int yClient = HIWORD(lParam) / this->helper->GetZoom();
 
-    if (model != nullptr && surfaceContext.renderTarget != nullptr) {
-        auto sizeF = surfaceContext.renderTarget->GetSize();
+    if (model != nullptr && surfaceContext.deviceContext != nullptr) {
+        auto sizeF = surfaceContext.deviceContext->GetSize();
         const auto& surfaceLayout = this->helper->GetLayout();
 
         xClient -= surfaceLayout.totalSurfaceSize.width * this->helper->GetHScroll();
@@ -317,9 +324,10 @@ void CDocumentView::OnLButtonUp(WPARAM wParam, LPARAM lParam)
     }
 }
 
-void CDocumentView::createDependentResources(const D2D1_SIZE_U& size)
+void CDocumentView::createDependentResources()
 {
-    this->surfaceContext.renderTarget.Reset();
+    this->surfaceContext.deviceContext.Reset();
+    this->surfaceContext.swapChain.Reset();
     this->surfaceContext.pageFrameBrush.Reset();
     this->surfaceContext.activePageFrameBrush.Reset();
     this->surfaceContext.scrollBarBrush.Reset();
@@ -360,7 +368,7 @@ void CDocumentView::createDependentResources(const D2D1_SIZE_U& size)
     OK(d2dFactory->CreateDevice(dxgiDevice.ptr, &d2dDevice.ptr));
 
     // Get Direct2D device's corresponding device context object.
-    OK(d2dDevice->CreateDeviceContext(D2D1_DEVICE_CONTEXT_OPTIONS_NONE, &this->surfaceContext.renderTarget.ptr));
+    OK(d2dDevice->CreateDeviceContext(D2D1_DEVICE_CONTEXT_OPTIONS_NONE, &this->surfaceContext.deviceContext.ptr));
 
     DXGI_SWAP_CHAIN_DESC1 swapChainDesc = {0};
     swapChainDesc.Width = 0;                           // use automatic sizing
@@ -395,10 +403,30 @@ void CDocumentView::createDependentResources(const D2D1_SIZE_U& size)
     // Ensure that DXGI doesn't queue more than one frame at a time.
     OK(dxgiDevice->SetMaximumFrameLatency(1));
 
-    // Get the backbuffer for this window which is be the final 3D render target.
-    CComPtrOwner<ID3D11Texture2D> backBuffer;
-    OK(this->surfaceContext.swapChain->GetBuffer(0, IID_ID3D11Texture2D,reinterpret_cast<void**>(&backBuffer.ptr)));
+    ///////////////////
+    OK(this->surfaceContext.deviceContext->CreateSolidColorBrush(
+                    this->viewProperties.pageFrameColor,
+                    &this->surfaceContext.pageFrameBrush.ptr));
 
+    OK(this->surfaceContext.deviceContext->CreateSolidColorBrush(
+                    this->viewProperties.activePageFrameColor,
+                    &this->surfaceContext.activePageFrameBrush.ptr));
+
+    OK(this->surfaceContext.deviceContext->CreateSolidColorBrush(
+                    this->viewProperties.scrollBarColor,
+                    &this->surfaceContext.scrollBarBrush.ptr));
+
+    if (this->model != nullptr) {
+        this->model->CreateObjects(this->surfaceContext.deviceContext);
+    }
+}
+
+void CDocumentView::createSwapChainBitmap()
+{
+    // ResizeBuffers fails if we reference some target
+    ID2D1Image* currentTarget = nullptr;
+    assert((this->surfaceContext.deviceContext->GetTarget(&currentTarget), currentTarget == nullptr));
+    OK(this->surfaceContext.swapChain->ResizeBuffers(0, 0, 0, DXGI_FORMAT_UNKNOWN, 0));
     // Now we set up the Direct2D render target bitmap linked to the swapchain.
     // Whenever we render to this bitmap, it is directly rendered to the
     // swap chain associated with the window.
@@ -415,7 +443,7 @@ void CDocumentView::createDependentResources(const D2D1_SIZE_U& size)
 
     CComPtrOwner<ID2D1Bitmap1> targetBitmap = nullptr;
     // Get a D2D surface from the DXGI back buffer to use as the D2D render target.
-    OK(this->surfaceContext.renderTarget->CreateBitmapFromDxgiSurface(
+    OK(this->surfaceContext.deviceContext->CreateBitmapFromDxgiSurface(
             dxgiBackBuffer.ptr,
             &bitmapProperties,
             &targetBitmap.ptr
@@ -423,57 +451,15 @@ void CDocumentView::createDependentResources(const D2D1_SIZE_U& size)
     );
 
     // Now we can set the Direct2D render target.
-    this->surfaceContext.renderTarget->SetTarget(targetBitmap.ptr);
-
-    ///////////////////
-    OK(this->surfaceContext.renderTarget->CreateSolidColorBrush(
-                    this->viewProperties.pageFrameColor,
-                    &this->surfaceContext.pageFrameBrush.ptr));
-
-    OK(this->surfaceContext.renderTarget->CreateSolidColorBrush(
-                    this->viewProperties.activePageFrameColor,
-                    &this->surfaceContext.activePageFrameBrush.ptr));
-
-    OK(this->surfaceContext.renderTarget->CreateSolidColorBrush(
-                    this->viewProperties.scrollBarColor,
-                    &this->surfaceContext.scrollBarBrush.ptr));
-
-    if (this->model != nullptr) {
-        this->model->CreateObjects(this->surfaceContext.renderTarget);
-    }
+    this->surfaceContext.deviceContext->SetTarget(targetBitmap.ptr);
 }
 
 void CDocumentView::resize(int width, int height)
 {
-    if (this->surfaceContext.renderTarget != nullptr)
+    if (this->surfaceContext.deviceContext != nullptr)
     {
-        this->surfaceContext.renderTarget->SetTarget(nullptr);
-        OK(this->surfaceContext.swapChain->ResizeBuffers(0, 0, 0, DXGI_FORMAT_UNKNOWN, 0));
-        // Now we set up the Direct2D render target bitmap linked to the swapchain.
-        // Whenever we render to this bitmap, it is directly rendered to the
-        // swap chain associated with the window.
-        D2D1_BITMAP_PROPERTIES1 bitmapProperties =
-            D2D1::BitmapProperties1(
-                D2D1_BITMAP_OPTIONS_TARGET | D2D1_BITMAP_OPTIONS_CANNOT_DRAW,
-                D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_IGNORE),
-                96,
-                96);
-
-        // Direct2D needs the dxgi version of the backbuffer surface pointer.
-        CComPtrOwner<IDXGISurface> dxgiBackBuffer;
-        OK(this->surfaceContext.swapChain->GetBuffer(0, IID_IDXGISurface1, reinterpret_cast<void**>(&dxgiBackBuffer.ptr)));
-
-        CComPtrOwner<ID2D1Bitmap1> targetBitmap = nullptr;
-        // Get a D2D surface from the DXGI back buffer to use as the D2D render target.
-        OK(this->surfaceContext.renderTarget->CreateBitmapFromDxgiSurface(
-                dxgiBackBuffer.ptr,
-                &bitmapProperties,
-                &targetBitmap.ptr
-            )
-        );
-
-        // Now we can set the Direct2D render target.
-        this->surfaceContext.renderTarget->SetTarget(targetBitmap.ptr);
+        this->surfaceContext.deviceContext->SetTarget(nullptr);
+        createSwapChainBitmap();
     }
     this->helper->SetRenderTargetSize(D2D1_SIZE_F{float{width}, float{height}});
 }

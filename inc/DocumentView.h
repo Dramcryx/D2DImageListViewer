@@ -54,7 +54,7 @@ private:
 
     // Direct2D objects
     struct CSurfaceContext {
-        CComPtrOwner<ID2D1DeviceContext> renderTarget = nullptr;
+        CComPtrOwner<ID2D1DeviceContext> deviceContext = nullptr;
         CComPtrOwner<IDXGISwapChain1> swapChain = nullptr;
         CComPtrOwner<ID2D1SolidColorBrush> pageFrameBrush = nullptr;
         CComPtrOwner<ID2D1SolidColorBrush> activePageFrameBrush = nullptr;
@@ -70,7 +70,8 @@ private:
     } viewProperties;
 
     /// @brief Creates Direct2D objects
-    void createDependentResources(const D2D1_SIZE_U& size);
+    void createDependentResources();
+    void createSwapChainBitmap();
 
     /// @brief Adjusts the size of the render target
     void resize(int width, int height);
