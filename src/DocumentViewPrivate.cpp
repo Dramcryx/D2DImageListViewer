@@ -1,11 +1,11 @@
 #include "DocumentViewPrivate.h"
 
 #include <IDocumentModel.h>
-#include <IDocumentPage.h>
 
 #include <algorithm>
 #include <cassert>
 #include <iostream>
+#include <memory>
 
 #ifdef DEBUG
 #define DEBUG_VAR(x) std::cout << #x << '=' << x << "\n";
@@ -36,7 +36,7 @@ bool operator!=(const D2D1_RECT_F& lhs, const D2D1_RECT_F& rhs)
 
 IDWriteFactory* DirectWriteFactory()
 {
-    static CComPtrOwner<IDWriteFactory> factory = nullptr;
+    static CComPtr<IDWriteFactory> factory = nullptr;
     if (factory == nullptr)
     {
         OK(DWriteCreateFactory(
@@ -47,299 +47,327 @@ IDWriteFactory* DirectWriteFactory()
     return factory.ptr;
 }
 
+std::ostream& operator<<(std::ostream& out, const SIZE& size)
+{
+    return out << size.cx << ' ' << size.cy;
+}
+
 std::ostream& operator<<(std::ostream& out, const D2D1_RECT_F& rect);
 std::ostream& operator<<(std::ostream& out, const D2D1_SIZE_F& size);
 
 namespace DocumentViewPrivate {
 
+inline float Width(const D2D1_RECT_F& rect)
+{
+    return rect.right - rect.left;
+}
+
+inline float Height(const D2D1_RECT_F& rect)
+{
+    return rect.bottom - rect.top;
+}
+
+inline std::pair<float, float> WxH(const D2D1_RECT_F& rect)
+{
+    return {Width(rect), Height(rect)};
+}
+
 void CDocumentLayoutHelper::SetRenderTargetSize(const D2D1_SIZE_F& renderTargetSize)
 {
     this->renderTargetSize = renderTargetSize;
-    this->resetCaches();
+     if (strategy == TImagesViewAlignment::HorizontalFlow) {
+        this->RefreshLayout();
+    } else {
+        this->calcScrollBars();
+    }
 }
 
 void CDocumentLayoutHelper::SetPageMargin(int margin)
 {
     this->pageMargin = margin;
-    this->resetCaches();
+    this->RefreshLayout();
 }
 
 void CDocumentLayoutHelper::SetPageSpacing(int spacing)
 {
     this->pagesSpacing = spacing;
-    this->resetCaches();
+    this->RefreshLayout();
 }
 
 void CDocumentLayoutHelper::SetAlignment(TImagesViewAlignment alignment)
 {
     this->strategy = alignment;
-    this->resetCaches();
+    this->RefreshLayout();
 }
 
 void CDocumentLayoutHelper::SetVScroll(float vScroll)
 {
     this->vScroll = vScroll;
-    this->resetCaches();
+    this->calcScrollBars();
 }
 
 void CDocumentLayoutHelper::AddVScroll(float delta)
 {
     this->vScroll += delta;
-    this->resetCaches();
+    this->calcScrollBars();
 }
 
 void CDocumentLayoutHelper::SetHScroll(float hScroll)
 {
     this->hScroll = hScroll;
-    this->resetCaches();
+    this->calcScrollBars();
 }
 
 void CDocumentLayoutHelper::AddHScroll(float delta)
 {
     this->hScroll += delta;
-    this->resetCaches();
+    this->calcScrollBars();
 }
 
 void CDocumentLayoutHelper::SetZoom(float zoom)
 {
     this->zoom = zoom;
-    this->resetCaches();
+    if (strategy == TImagesViewAlignment::HorizontalFlow) {
+        this->RefreshLayout();
+    } else {
+        this->calcScrollBars();
+    }
 }
 
 void CDocumentLayoutHelper::AddZoom(float delta)
 {
     this->zoom += delta;
-    this->resetCaches();
-}
-
-void CDocumentLayoutHelper::SetModel(const IDocumentModel* model)
-{
-    this->model = model;
-    this->resetCaches();
+    if (strategy == TImagesViewAlignment::HorizontalFlow) {
+        this->RefreshLayout();
+    } else {
+        this->calcScrollBars();
+    }
 }
 
 const CDocumentPagesLayout& CDocumentLayoutHelper::GetLayout() const
 {
-    if (cachedLayout.has_value())
+    return layout;
+}
+
+const CScrollBarRects& CDocumentLayoutHelper::GetRelativeScrollBarRects() const
+{
+    return relativeScrollRects;
+}
+
+void CDocumentLayoutHelper::AddPage(const IPage* page, IDWriteTextFormat* format, std::wstring headerText)
+{
+    TRACE()
+
+    auto absoluteLayout = createAbsolutePageLayout(page, format, headerText);
+    adjustLayoutForCurrentAlignment(absoluteLayout);
+    layout.pageRects.push_back(std::move(absoluteLayout));
+
+    calcScrollBars();
+}
+
+void CDocumentLayoutHelper::DeletePage(const std::variant<const IPage*, int>& page)
+{
+    TRACE()
+
+    if (std::holds_alternative<int>(page))
     {
-        return *cachedLayout;
+        int index = std::get<int>(page);
+        assert(0 <= index && index < layout.pageRects.size());
+        layout.pageRects.erase(layout.pageRects.begin() + index);
+    }
+    else
+    {
+        auto pagePtr = std::get<const IPage*>(page);
+        auto iter = std::find_if(layout.pageRects.begin(), layout.pageRects.end(),
+            [pagePtr](const auto& pageLayout) {
+                return pageLayout.page == pagePtr;
+            }
+        );
+        assert(iter != layout.pageRects.end());
+        layout.pageRects.erase(iter);
+    }
+    RefreshLayout();
+}
+
+void CDocumentLayoutHelper::ClearPages()
+{
+    layout = CDocumentPagesLayout{};
+}
+
+void CDocumentLayoutHelper::RefreshLayout()
+{
+    auto& retval = layout;
+    retval.alignmentContextValue1 = 0.f;
+    retval.alignmentContextValue2 = 0.f;
+    retval.alignmentContextValue3 = 0.f;
+    retval.alignmentContextValue4 = 0.f;
+
+    for (auto& pageRect : retval.pageRects)
+    {
+        {
+            auto [pageWidth, pageHeight] = pageRect.page->GetPageSize();
+            auto [textWidth, textHeight] = WxH(pageRect.textRect);
+            pageRect.textRect = {0.f, 0.f, textWidth, textHeight};
+            pageRect.pageRect = {0.f, textHeight, (float)pageWidth, (float)pageHeight};
+        }
+        auto& absoluteLayout = pageRect;
+        adjustLayoutForCurrentAlignment(absoluteLayout);
     }
 
-    CDocumentPagesLayout retval;
+    calcScrollBars();
+}
 
-    const float pageMargin = this->pageMargin;
+CDocumentPagesLayout::CPageLayout CDocumentLayoutHelper::createAbsolutePageLayout(
+    const IPage* page, IDWriteTextFormat* format, std::wstring text
+) const
+{
+    CDocumentPagesLayout::CPageLayout pageLayout;
 
-    auto generateTextLayout = [](IDWriteTextFormat* textFormat, const std::wstring& text, float maxWidth, IDWriteTextLayout** output) {
-        OK(DirectWriteFactory()->CreateTextLayout(
-                text.c_str(),
-                text.length(),
-                textFormat,
-                maxWidth,
-                0.0f,
-                output
-        ));
+    auto pageSize = page->GetPageSize();
+
+    float textWidth = 0.f;
+    float textHeight = 0.f;
+    std::tie(pageLayout.textLayout.ptr, textWidth, textHeight) = [](IDWriteTextFormat* textFormat, const std::wstring& text, float maxWidth)
+    {
+        IDWriteTextLayout* output = nullptr;
+        OK(DirectWriteFactory()->CreateTextLayout(text.c_str(), text.length(), textFormat, maxWidth, 0.0f, &output));
 
         DWRITE_TEXT_METRICS textMetrics;
-        OK((*output)->GetMetrics(&textMetrics));
-        return std::make_pair(textMetrics.widthIncludingTrailingWhitespace, textMetrics.height * 11.f / 10.f);
+        OK(output->GetMetrics(&textMetrics));
+        return std::make_tuple(
+            output, textMetrics.widthIncludingTrailingWhitespace, textMetrics.height * 11.f / 10.f
+        );
+    }(format, text, pageSize.cx);
+
+    pageLayout.textRect = {
+        (float)pageMargin,
+        (float)pageMargin,
+        (float)pageMargin + textWidth,
+        pageMargin + textHeight};
+    pageLayout.page = page;
+
+    pageLayout.pageRect = {
+        pageLayout.textRect.left,
+        pageLayout.textRect.bottom,
+        pageLayout.textRect.left + (float)pageSize.cx,
+        pageLayout.textRect.bottom + pageSize.cy + pageMargin
     };
 
-    retval.pageRects.reserve(model->GetPageCount());
+    return pageLayout;
+}
+
+void CDocumentLayoutHelper::adjustLayoutForCurrentAlignment(CDocumentPagesLayout::CPageLayout& absoluteLayout)
+{
+    auto& retval = layout;
     switch (strategy)
     {
     case TImagesViewAlignment::AlignLeft:
     {
-        float topOffset = 0.0;
-        float maxWidth = 0.0;
-        for (int i = 0; i < model->GetPageCount(); ++i) {
-            auto page = reinterpret_cast<IDocumentPage*>(model->GetData(i, TDocumentModelRoles::PageRole));
-            auto pageSize = page->GetPageSize();
+        float& topOffset = retval.alignmentContextValue1;
+        float& maxWidth = retval.alignmentContextValue2;
+    
+        adjustPage(absoluteLayout, topOffset, 0.f);
+        DEBUG_VAR(absoluteLayout.pageRect);
 
-            CDocumentPagesLayout::CPageLayout pageLayout;
+        auto pageSize = absoluteLayout.page->GetPageSize();
+        auto textHeight = Height(absoluteLayout.textRect);
 
-            auto format = reinterpret_cast<IDWriteTextFormat*>(model->GetData(i, TDocumentModelRoles::HeaderFontRole));
-            auto [textWidth, textHeight] = generateTextLayout(
-                format,
-                std::wstring{(wchar_t*)model->GetData(i, TDocumentModelRoles::HeaderTextRole)},
-                pageSize.cx,
-                &pageLayout.textLayout.ptr
-            );
-
-            pageLayout.textRect = {
-                pageMargin,
-                topOffset + pageMargin,
-                textWidth + pageMargin,
-                topOffset + pageMargin + textHeight};
-
-            pageLayout.page = page;
-            pageLayout.pageRect = {
-                pageMargin,
-                pageLayout.textRect.bottom,
-                pageMargin + pageSize.cx,
-                pageLayout.textRect.bottom + pageSize.cy + pageMargin
-            };
-
-            retval.pageRects.push_back(std::move(pageLayout));
-
-            maxWidth = std::max(maxWidth, (float)pageSize.cx + pageMargin * 2);
-            topOffset += pageSize.cy + pageMargin * 2 + textHeight;
-            topOffset += pagesSpacing;
-        }
+        maxWidth = std::max(maxWidth, (float)pageSize.cx + pageMargin * 2);
+        topOffset += pageSize.cy + pageMargin * 2 + textHeight;
+        topOffset += pagesSpacing;
+        
         retval.totalSurfaceSize = {maxWidth, topOffset - pagesSpacing};
         break;
     }
     case TImagesViewAlignment::AlignRight:
     {
-        std::vector<const IDocumentPage*> pages;
-        pages.reserve(model->GetPageCount());
-        
-        for (int i = 0; i < model->GetPageCount(); ++i) {
-            pages.push_back(reinterpret_cast<IDocumentPage*>(model->GetData(i, TDocumentModelRoles::PageRole)));
+        float oldMaxPageWidth = retval.alignmentContextValue1;
+        float& maxPageWidth = retval.alignmentContextValue1;
+        float& topOffset = retval.alignmentContextValue2;
+
+        maxPageWidth = std::max(maxPageWidth, Width(absoluteLayout.pageRect));
+        if (maxPageWidth != oldMaxPageWidth) {
+            for (auto& pageLayout : retval.pageRects) {
+                auto [pageWidth, _] = pageLayout.page->GetPageSize();
+                auto textWidth = Width(pageLayout.textRect);
+                pageLayout.textRect.left = pageMargin;
+                pageLayout.textRect.right = pageMargin + textWidth;
+                pageLayout.pageRect.left = pageMargin;
+                pageLayout.pageRect.right = pageMargin + pageWidth;
+                adjustPage(pageLayout, 0, maxPageWidth);
+            }
         }
 
-        float maxPageWidth = (*std::max_element(pages.begin(), pages.end(), [](const auto& lhs, const auto& rhs) {
-            return lhs->GetPageSize().cx < rhs->GetPageSize().cx;
-        }))->GetPageSize().cx;
+        adjustPage(absoluteLayout, topOffset, maxPageWidth);
 
-        float topOffset = 0.0;
+        auto pageHeight = Height(absoluteLayout.pageRect);
+        auto textHeight = Height(absoluteLayout.textRect);
 
-        for (int i = 0; i < model->GetPageCount(); ++i) {
-            auto page = reinterpret_cast<IDocumentPage*>(model->GetData(i, TDocumentModelRoles::PageRole));
-            auto pageSize = page->GetPageSize();
+        topOffset += pageHeight + pageMargin * 2 + textHeight;
+        topOffset += pagesSpacing;
 
-            CDocumentPagesLayout::CPageLayout pageLayout;
-
-            auto format = reinterpret_cast<IDWriteTextFormat*>(model->GetData(i, TDocumentModelRoles::HeaderFontRole));
-            auto [textWidth, textHeight] = generateTextLayout(
-                format,
-                std::wstring{(wchar_t*)model->GetData(i, TDocumentModelRoles::HeaderTextRole)},
-                pageSize.cx,
-                &pageLayout.textLayout.ptr
-            );
-
-            pageLayout.textRect = {
-                maxPageWidth + pageMargin - textWidth,
-                topOffset + pageMargin,
-                maxPageWidth + pageMargin,
-                topOffset + textHeight};
-
-            pageLayout.page = page;
-            pageLayout.pageRect = {
-                maxPageWidth + pageMargin - pageSize.cx,
-                pageLayout.textRect.bottom,
-                maxPageWidth + pageMargin,
-                pageLayout.textRect.bottom + pageSize.cy + pageMargin
-            };
-
-            retval.pageRects.push_back(std::move(pageLayout));
-
-            topOffset += pageSize.cy + pageMargin * 2 + textHeight;
-            topOffset += pagesSpacing;
-        }
         retval.totalSurfaceSize = {maxPageWidth + pageMargin * 2, topOffset - pagesSpacing};
         break;
     }
     case TImagesViewAlignment::AlignHCenter:
     {
-        std::vector<const IDocumentPage*> pages;
-        pages.reserve(model->GetPageCount());
+        float oldMaxPageWidth = retval.alignmentContextValue1;
+        float& maxPageWidth = retval.alignmentContextValue1;
+        float& topOffset = retval.alignmentContextValue2;
+
+        maxPageWidth = std::max(maxPageWidth, Width(absoluteLayout.pageRect));
+        if (maxPageWidth != oldMaxPageWidth) {
+            for (auto& pageLayout : retval.pageRects) {
+                auto [pageWidth, _] = pageLayout.page->GetPageSize();
+                auto textWidth = Width(pageLayout.textRect);
+                pageLayout.textRect.left = pageMargin;
+                pageLayout.textRect.right = pageMargin + textWidth;
+                pageLayout.pageRect.left = pageMargin;
+                pageLayout.pageRect.right = pageMargin + pageWidth;
+                adjustPage(pageLayout, 0, maxPageWidth / 2 - Width(pageLayout.pageRect) / 2);
+            }
+        }
+
+        auto pageWidth = Width(absoluteLayout.pageRect);
+        auto pageHeight = Height(absoluteLayout.pageRect);
+        adjustPage(absoluteLayout, topOffset, maxPageWidth / 2 - pageWidth / 2);
         
-        for (int i = 0; i < model->GetPageCount(); ++i) {
-            pages.push_back(reinterpret_cast<IDocumentPage*>(model->GetData(i, TDocumentModelRoles::PageRole)));
-        }
+        auto textHeight = Height(absoluteLayout.textRect);
 
-        float maxPageWidth = (*std::max_element(pages.begin(), pages.end(), [](const auto& lhs, const auto& rhs) {
-            return lhs->GetPageSize().cx < rhs->GetPageSize().cx;
-        }))->GetPageSize().cx;
-        float topOffset = 0.0;
+        topOffset += pageHeight + pageMargin * 2 + textHeight;
+        topOffset += pagesSpacing;
 
-        for (int i = 0; i < model->GetPageCount(); ++i) {
-            auto page = reinterpret_cast<IDocumentPage*>(model->GetData(i, TDocumentModelRoles::PageRole));
-            auto pageSize = page->GetPageSize();
-
-            CDocumentPagesLayout::CPageLayout pageLayout;
-
-            auto format = reinterpret_cast<IDWriteTextFormat*>(model->GetData(i, TDocumentModelRoles::HeaderFontRole));
-            auto [textWidth, textHeight] = generateTextLayout(
-                format,
-                std::wstring{(wchar_t*)model->GetData(i, TDocumentModelRoles::HeaderTextRole)},
-                pageSize.cx,
-                &pageLayout.textLayout.ptr
-            );
-
-            pageLayout.textRect = {
-                maxPageWidth / 2 + pageMargin - pageSize.cx / 2,
-                topOffset + pageMargin,
-                maxPageWidth / 2 + pageMargin - pageSize.cx / 2 + textWidth,
-                topOffset + textHeight};
-            pageLayout.page = page;
-            pageLayout.pageRect = {
-                maxPageWidth / 2 + pageMargin - pageSize.cx / 2,
-                pageLayout.textRect.bottom,
-                maxPageWidth / 2 + pageMargin + pageSize.cx / 2,
-                pageLayout.textRect.bottom + pageSize.cy + pageMargin
-            };
-
-            retval.pageRects.push_back(std::move(pageLayout));
-
-            topOffset += pageSize.cy + pageMargin * 2 + textHeight;
-            topOffset += pagesSpacing;
-        }
         retval.totalSurfaceSize = {maxPageWidth + pageMargin * 2, topOffset - pagesSpacing};
         break;
     }
     case TImagesViewAlignment::HorizontalFlow:
     {
-        float totalLeftOffset = 0.0;
+        float& totalLeftOffset = retval.alignmentContextValue1;
 
-        float topOffset = 0.0;
-        float leftOffset = 0.0;
-        float maxHeight = 0.0;
+        float& topOffset = retval.alignmentContextValue2;
+        float& leftOffset = retval.alignmentContextValue3;
+        float& maxHeight = retval.alignmentContextValue4;
 
         const D2D1_SIZE_F drawSurfaceSize{renderTargetSize.width / this->zoom, renderTargetSize.height / this->zoom};
-        for (int i = 0; i < model->GetPageCount(); ++i) {
-            auto page = reinterpret_cast<IDocumentPage*>(model->GetData(i, TDocumentModelRoles::PageRole));
-            auto pageSize = page->GetPageSize();
 
-            if (leftOffset != 0.0 && (pageSize.cx + leftOffset + pageMargin * 2 > drawSurfaceSize.width)) {
-                totalLeftOffset = std::max(totalLeftOffset, leftOffset);
-                leftOffset = 0.0;
+        auto [textWidth, textHeight] = WxH(absoluteLayout.textRect);
+        auto [pageWidth, pageHeight] = WxH(absoluteLayout.pageRect);
+        
+        if (leftOffset != 0.0 && (pageWidth + leftOffset + pageMargin * 2 > drawSurfaceSize.width)) {
+            totalLeftOffset = std::max(totalLeftOffset, leftOffset);
+            leftOffset = 0.0;
 
-                topOffset += maxHeight + pageMargin * 2;
-                topOffset += pagesSpacing;
-                maxHeight = 0.0;
-            }
-
-            CDocumentPagesLayout::CPageLayout pageLayout;
-
-            auto format = reinterpret_cast<IDWriteTextFormat*>(model->GetData(i, TDocumentModelRoles::HeaderFontRole));
-            auto [textWidth, textHeight] = generateTextLayout(
-                format,
-                std::wstring{(wchar_t*)model->GetData(i, TDocumentModelRoles::HeaderTextRole)},
-                pageSize.cx,
-                &pageLayout.textLayout.ptr
-            );
-
-            pageLayout.textRect = {
-                leftOffset + pageMargin,
-                topOffset + pageMargin,
-                leftOffset + (float)pageSize.cx + pageMargin + textWidth,
-                topOffset + pageMargin + textHeight};
-            pageLayout.page = page;
-
-            pageLayout.pageRect = {
-                pageLayout.textRect.left,
-                pageLayout.textRect.bottom,
-                pageLayout.textRect.left + (float)pageSize.cx,
-                pageLayout.textRect.bottom + pageSize.cy + pageMargin
-            };
-
-            retval.pageRects.push_back(std::move(pageLayout));
-
-            maxHeight = std::max(maxHeight, (float)pageSize.cy + pageMargin * 2 + textHeight);
-            leftOffset += pageSize.cx + pageMargin * 2;
-            leftOffset += pagesSpacing;
+            topOffset += maxHeight + pageMargin * 2;
+            topOffset += pagesSpacing;
+            maxHeight = 0.0;
         }
+        
+        adjustPage(absoluteLayout, topOffset, leftOffset);
+
+        maxHeight = std::max(maxHeight, (float)pageHeight + pageMargin * 2 + textHeight);
+        leftOffset += pageWidth + pageMargin * 2;
+        leftOffset += pagesSpacing;
+
         totalLeftOffset = std::max(totalLeftOffset, leftOffset);
         retval.totalSurfaceSize = {totalLeftOffset - pagesSpacing, topOffset + maxHeight - pagesSpacing};
         break;
@@ -347,29 +375,70 @@ const CDocumentPagesLayout& CDocumentLayoutHelper::GetLayout() const
     default:
         break;
     }
-
-    retval.viewportOffset = {
-        retval.totalSurfaceSize.width * this->zoom * this->hScroll,
-        retval.totalSurfaceSize.height * this->zoom * this->vScroll
-    };
-
-    cachedLayout.emplace(std::move(retval));
-    return *cachedLayout;
 }
 
-const CScrollBarRects& CDocumentLayoutHelper::GetRelativeScrollBarRects()
+void CDocumentLayoutHelper::adjustPage(CDocumentPagesLayout::CPageLayout& absoluteLayout, float topOffset, float leftOffset) const
 {
-    if (cachedRelativeScrollRects.has_value()) {
-        return *cachedRelativeScrollRects;
+    switch(strategy)
+    {
+        case TImagesViewAlignment::AlignRight:
+        {
+            auto textWidth = Width(absoluteLayout.textRect);
+            auto pageWidth = Width(absoluteLayout.pageRect);
+
+            absoluteLayout.pageRect.left += leftOffset - pageWidth;
+            absoluteLayout.pageRect.right += leftOffset - pageWidth;
+            absoluteLayout.pageRect.top += topOffset;
+            absoluteLayout.pageRect.bottom += topOffset;
+
+            absoluteLayout.textRect.right = absoluteLayout.pageRect.right;
+            absoluteLayout.textRect.left = absoluteLayout.pageRect.right - textWidth;
+
+            absoluteLayout.textRect.top += topOffset;
+            absoluteLayout.textRect.bottom += topOffset;
+
+            break;
+        }
+        case TImagesViewAlignment::AlignLeft:
+        case TImagesViewAlignment::AlignHCenter:
+        case TImagesViewAlignment::HorizontalFlow:
+        {
+            absoluteLayout.textRect.left += leftOffset;
+            absoluteLayout.textRect.top += topOffset;
+            absoluteLayout.textRect.right += leftOffset;
+            absoluteLayout.textRect.bottom += topOffset;
+
+            absoluteLayout.pageRect.left += leftOffset;
+            absoluteLayout.pageRect.top += topOffset;
+            absoluteLayout.pageRect.right += leftOffset;
+            absoluteLayout.pageRect.bottom += topOffset;
+            break;
+        }
+
     }
+}
+
+void CDocumentLayoutHelper::calcScrollBars()
+{
+    this->zoom = std::max(this->zoom, 0.1f);
+    const float vVisibleToTotal = this->renderTargetSize.height / (layout.totalSurfaceSize.height * this->zoom);
+    DEBUG_VAR(vVisibleToTotal)
+    DEBUG_VAR(vScroll)
+    vScroll = std::clamp(vScroll, -1.0f + vVisibleToTotal, 0.0f);
+    DEBUG_VAR(vScroll)
+    const float hVisibleToTotal = this->renderTargetSize.width / (layout.totalSurfaceSize.width * this->zoom);
+    DEBUG_VAR(hVisibleToTotal)
+    DEBUG_VAR(hScroll)
+    hScroll = std::clamp(hScroll, -1.0f + hVisibleToTotal, 0.0f);
+    DEBUG_VAR(hScroll)
+
+    layout.viewportOffset = {
+        layout.totalSurfaceSize.width * this->zoom * this->hScroll,
+        layout.totalSurfaceSize.height * this->zoom * this->vScroll
+    };
 
     CScrollBarRects newRects;
-    DEBUG_VAR(renderTargetSize);
-
-    const float hVisibleToTotal = this->renderTargetSize.width / (GetLayout().totalSurfaceSize.width * this->zoom);
-    const float vVisibleToTotal = this->renderTargetSize.height / (GetLayout().totalSurfaceSize.height * this->zoom);
-    DEBUG_VAR(hVisibleToTotal)
-    DEBUG_VAR(vVisibleToTotal)
+    DEBUG_VAR(renderTargetSize)
 
     constexpr float scrollBarThickness = 5.0f;
     constexpr float scrollBarRadius = 3.0f;
@@ -409,18 +478,8 @@ const CScrollBarRects& CDocumentLayoutHelper::GetRelativeScrollBarRects()
         DEBUG_VAR(vScrollBarRect)
         newRects.vScrollBar = {vScrollBarRect, scrollBarRadius, scrollBarRadius};
     }
-    return *(cachedRelativeScrollRects = newRects);
-}
 
-void CDocumentLayoutHelper::resetCaches()
-{
-    this->zoom = std::max(this->zoom, 0.1f);
-    const float vVisibleToTotal = this->renderTargetSize.height / (GetLayout().totalSurfaceSize.height * this->zoom);
-    vScroll = std::clamp(vScroll, -1.0f + vVisibleToTotal, 0.0f);
-    const float hVisibleToTotal = this->renderTargetSize.width / (GetLayout().totalSurfaceSize.width * this->zoom);
-    hScroll = std::clamp(hScroll, -1.0f + hVisibleToTotal, 0.0f);
-    this->cachedLayout.reset();
-    this->cachedRelativeScrollRects.reset();
+    relativeScrollRects = newRects;
 }
 
 }

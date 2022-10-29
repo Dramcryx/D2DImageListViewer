@@ -1,9 +1,8 @@
-#include "DocumentView.h"
+#include <DocumentView.h>
 
 #include "DocumentViewPrivate.h"
 
 #include <Direct2DMatrixSwitcher.h>
-#include <IDocumentPage.h>
 
 #include <d3d11_2.h>
 
@@ -126,16 +125,33 @@ void CDocumentView::Redraw()
     assert(UpdateWindow(this->window));
 }
 
-void CDocumentView::SetModel(IDocumentModel* _model)
+void CDocumentView::SetModel(IDocumentsModel* _model)
 {
-    this->model.reset(_model);
-    if (this->surfaceContext.deviceContext != nullptr && this->model != nullptr) {
-        this->model->CreateObjects(this->surfaceContext.deviceContext);
+    if (this->model != nullptr) {
+        this->model->Unsubscribe(this);
     }
-    this->helper->SetModel(this->model.get());
+    this->model.reset(_model);
+    this->helper->ClearPages();
+    if (this->model == nullptr) {
+        return;
+    }
+
+    this->model->Subscribe(this);
+
+    if (this->surfaceContext.deviceContext != nullptr) {
+        this->model->CreateImages(this->surfaceContext.deviceContext);
+    }
+
+    for (int i = 0; i < this->model->GetTotalPageCount(); ++i)
+    {
+        auto page = reinterpret_cast<IPage*>(model->GetData(i, TDocumentModelRoles::PageRole));
+        auto format = reinterpret_cast<IDWriteTextFormat*>(model->GetData(i, TDocumentModelRoles::HeaderFontRole));
+        std::unique_ptr<wchar_t> headerText{(wchar_t*)model->GetData(i, TDocumentModelRoles::HeaderTextRole)};
+        this->helper->AddPage(page, format, std::wstring{headerText.get()});
+    }
 }
 
-IDocumentModel* CDocumentView::GetModel() const
+IDocumentsModel* CDocumentView::GetModel() const
 {
     return this->model.get();
 }
@@ -175,7 +191,8 @@ void CDocumentView::OnDraw(WPARAM, LPARAM)
     PAINTSTRUCT ps;
     BeginPaint(this->window, &ps);
 
-    RECT rect = ps.rcPaint;
+    RECT rect;
+    assert(GetClientRect(this->window, &rect));
     auto size = D2D1::SizeU(rect.right - rect.left, rect.bottom - rect.top);
 
     auto& renderTarget = this->surfaceContext.deviceContext;
@@ -209,13 +226,15 @@ void CDocumentView::OnDraw(WPARAM, LPARAM)
                     pageLayout.textLayout.ptr,
                     surfaceContext.pageFrameBrush
                 );
-                renderTarget->DrawBitmap(
-                    pageLayout.page->GetPageBitmap(),
-                    pageLayout.pageRect,
-                    1.f,
-                    D2D1_BITMAP_INTERPOLATION_MODE_NEAREST_NEIGHBOR,
-                    nullptr
-                );
+                if (pageLayout.page->GetPageState() == TPageState::READY) {
+                    renderTarget->DrawBitmap(
+                        pageLayout.page->GetPageBitmap(),
+                        pageLayout.pageRect,
+                        1.f,
+                        D2D1_BITMAP_INTERPOLATION_MODE_NEAREST_NEIGHBOR,
+                        nullptr
+                    );
+                }
 
                 renderTarget->DrawRectangle(
                     pageLayout.pageRect,
@@ -244,15 +263,14 @@ void CDocumentView::OnDraw(WPARAM, LPARAM)
         }
     }
     
-    if (renderTarget->EndDraw() == D2DERR_RECREATE_TARGET) {
+    if (renderTarget->EndDraw() == D2DERR_RECREATE_TARGET)
+    {
         this->createDependentResources();
         this->createSwapChainBitmap();
     }
 
-    DXGI_PRESENT_PARAMETERS params{
-        0, nullptr, nullptr, nullptr
-    };
-    if (auto hr = this->surfaceContext.swapChain->Present1(1, 0, &params); hr == DXGI_STATUS_OCCLUDED) {
+    if (auto hr = this->surfaceContext.swapChain->Present(1, 0); hr == DXGI_STATUS_OCCLUDED)
+    {
         this->createDependentResources();
         this->createSwapChainBitmap();
     } else {
@@ -324,6 +342,34 @@ void CDocumentView::OnLButtonUp(WPARAM wParam, LPARAM lParam)
     }
 }
 
+void CDocumentView::OnDocumentAdded(IDocument* doc)
+{
+    if (doc->GetPagesCount() == 0) {
+        return;
+    }
+    for (int i = 0; i < model->GetTotalPageCount(); ++i) {
+        auto page = reinterpret_cast<IPage*>(model->GetData(i, TDocumentModelRoles::PageRole));
+        if (page->GetDocument() != doc) {
+            continue;
+        }
+        auto format = reinterpret_cast<IDWriteTextFormat*>(model->GetData(i, TDocumentModelRoles::HeaderFontRole));
+        std::unique_ptr<wchar_t> headerText{(wchar_t*)model->GetData(i, TDocumentModelRoles::HeaderTextRole)};
+        this->helper->AddPage(page, format, std::wstring{headerText.get()});
+    }
+    this->Redraw();
+}
+
+void CDocumentView::OnDocumentDeleted(IDocument* doc)
+{
+    if (doc->GetPagesCount() == 0) {
+        return;
+    }
+    for (int i = 0; i < doc->GetPagesCount(); ++i) {
+        this->helper->DeletePage(doc->GetPage(i));
+    }
+    this->Redraw();
+}
+
 void CDocumentView::createDependentResources()
 {
     this->surfaceContext.deviceContext.Reset();
@@ -343,8 +389,8 @@ void CDocumentView::createDependentResources()
         D3D_FEATURE_LEVEL_9_1
     };
 
-    CComPtrOwner<ID3D11Device> d3dDevice;
-    CComPtrOwner<ID3D11DeviceContext> d3dDeviceContext;
+    CComPtr<ID3D11Device> d3dDevice;
+    CComPtr<ID3D11DeviceContext> d3dDeviceContext;
     auto deviceCreationResult =
         ::D3D11CreateDevice(
             nullptr,                    // specify nullptr to use the default adapter
@@ -374,11 +420,11 @@ void CDocumentView::createDependentResources()
             )
         );
     }
-    CComPtrOwner<IDXGIDevice1> dxgiDevice;
+    CComPtr<IDXGIDevice1> dxgiDevice;
     // Obtain the underlying DXGI device of the Direct3D11 device.
     OK(d3dDevice->QueryInterface(&dxgiDevice.ptr));
 
-    CComPtrOwner<ID2D1Device> d2dDevice;
+    CComPtr<ID2D1Device> d2dDevice;
     // Obtain the Direct2D device for 2-D rendering.
     OK(d2dFactory->CreateDevice(dxgiDevice.ptr, &d2dDevice.ptr));
 
@@ -399,11 +445,11 @@ void CDocumentView::createDependentResources()
     swapChainDesc.Flags = 0;
 
      // Identify the physical adapter (GPU or card) this device is runs on.
-    CComPtrOwner<IDXGIAdapter> dxgiAdapter;
+    CComPtr<IDXGIAdapter> dxgiAdapter;
     OK(dxgiDevice->GetAdapter(&dxgiAdapter.ptr));
 
     // Get the factory object that created the DXGI device.
-    CComPtrOwner<IDXGIFactory2> dxgiFactory;
+    CComPtr<IDXGIFactory2> dxgiFactory;
     OK(dxgiAdapter->GetParent(IID_IDXGIFactory2, reinterpret_cast<void**>(&dxgiFactory.ptr)));
 
     // Get the final swap chain for this window from the DXGI factory.
@@ -432,7 +478,9 @@ void CDocumentView::createDependentResources()
                     &this->surfaceContext.scrollBarBrush.ptr));
 
     if (this->model != nullptr) {
-        this->model->CreateObjects(this->surfaceContext.deviceContext);
+        std::cout << "Passing context to model\n";
+        this->model->CreateImages(this->surfaceContext.deviceContext);
+        this->helper->RefreshLayout();
     }
 }
 
@@ -453,10 +501,10 @@ void CDocumentView::createSwapChainBitmap()
             96);
 
     // Direct2D needs the dxgi version of the backbuffer surface pointer.
-    CComPtrOwner<IDXGISurface> dxgiBackBuffer;
+    CComPtr<IDXGISurface> dxgiBackBuffer;
     OK(this->surfaceContext.swapChain->GetBuffer(0, IID_IDXGISurface1, reinterpret_cast<void**>(&dxgiBackBuffer.ptr)));
 
-    CComPtrOwner<ID2D1Bitmap1> targetBitmap = nullptr;
+    CComPtr<ID2D1Bitmap1> targetBitmap = nullptr;
     // Get a D2D surface from the DXGI back buffer to use as the D2D render target.
     OK(this->surfaceContext.deviceContext->CreateBitmapFromDxgiSurface(
             dxgiBackBuffer.ptr,

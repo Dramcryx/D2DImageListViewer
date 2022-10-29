@@ -2,7 +2,7 @@
 #define DOCUMENT_VIEW_PRIVATE_H
 
 #include <Defines.h>
-#include <ComPtrOwner.h>
+#include <ComPtr.h>
 #include <DocumentViewParams.h>
 
 #include <d2d1.h>
@@ -12,10 +12,11 @@
 #include <optional>
 #include <string>
 #include <tuple>
+#include <variant>
 #include <vector>
 
-struct IDocumentModel;
-struct IDocumentPage;
+struct IDocumentsModel;
+struct IPage;
 
 bool operator==(const D2D_SIZE_F& lhs, const D2D_SIZE_F& rhs);
 bool operator!=(const D2D_SIZE_F& lhs, const D2D_SIZE_F& rhs);
@@ -29,13 +30,21 @@ struct CDocumentPagesLayout {
     D2D1_SIZE_F totalSurfaceSize = {0.0f, 0.0f};
     D2D1_SIZE_F viewportOffset = {0.0f, 0.0f};
     struct CPageLayout {
-        CComPtrOwner<IDWriteTextLayout> textLayout = nullptr;
+        CComPtr<IDWriteTextLayout> textLayout = nullptr;
         D2D1_RECT_F textRect;
 
-        const IDocumentPage* page = nullptr;
+        const IPage* page = nullptr;
         D2D1_RECT_F pageRect;
     };
     std::vector<CPageLayout> pageRects;
+
+private:
+    /// Offsets or other values that allow to modify existing layout
+    friend class CDocumentLayoutHelper;
+    float alignmentContextValue1 = 0.f;
+    float alignmentContextValue2 = 0.f;
+    float alignmentContextValue3 = 0.f;
+    float alignmentContextValue4 = 0.f;
 };
 
 /// @brief Where to draw scrolls
@@ -73,11 +82,13 @@ public:
     void SetZoom(float zoom);
     void AddZoom(float delta);
 
-    const IDocumentModel* GetModel() const{ return this->model; }
-    void SetModel(const IDocumentModel* model);
-
     const CDocumentPagesLayout& GetLayout() const;
-    const CScrollBarRects& GetRelativeScrollBarRects();
+    const CScrollBarRects& GetRelativeScrollBarRects() const;
+
+    void AddPage(const IPage* page, IDWriteTextFormat* format, std::wstring headerText);
+    void DeletePage(const std::variant<const IPage*, int>& page);
+    void ClearPages();
+    void RefreshLayout();
 
 private:
     D2D1_SIZE_F renderTargetSize{0, 0};
@@ -87,12 +98,14 @@ private:
     float vScroll = 0.0f;
     float hScroll = 0.0f;
     float zoom = 1.0f;
-    const IDocumentModel* model = nullptr;
 
-    mutable std::optional<CDocumentPagesLayout> cachedLayout;
-    mutable std::optional<CScrollBarRects> cachedRelativeScrollRects;
+    CDocumentPagesLayout layout;
+    CScrollBarRects relativeScrollRects;
 
-    void resetCaches();
+    CDocumentPagesLayout::CPageLayout createAbsolutePageLayout(const IPage* page, IDWriteTextFormat* format, std::wstring text) const;
+    void adjustLayoutForCurrentAlignment(CDocumentPagesLayout::CPageLayout& absoluteLayout);
+    void adjustPage(CDocumentPagesLayout::CPageLayout& absoluteLayout, float topOffset, float leftOffset) const;
+    void calcScrollBars();
 };
 
 }

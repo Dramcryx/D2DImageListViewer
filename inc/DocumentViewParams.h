@@ -1,5 +1,5 @@
-#ifndef DOCUMENT_VIEW_PARAMS_H
-#define DOCUMENT_VIEW_PARAMS_H
+#ifndef D2DILV_DOCUMENT_VIEW_PARAMS_H
+#define D2DILV_DOCUMENT_VIEW_PARAMS_H
 
 enum class TImagesViewAlignment {
         AlignLeft,

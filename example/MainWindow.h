@@ -2,7 +2,7 @@
 #define EXAMPLE_MAINWINDOW_H
 
 #include <DocumentView.h>
-#include <DocumentModel.h>
+#include <BasicDocumentModel.h>
 
 #include <memory>
 
@@ -19,9 +19,11 @@ public:
 
 protected:
     void OnSize(WPARAM, LPARAM);
+    void OnSizing(WPARAM, LPARAM);
     void OnDropfiles(WPARAM, LPARAM);
     void OnCommand(WPARAM, LPARAM);
     void OnBnClicked(HWND button);
+    void OnKeydown(WPARAM, LPARAM);
 
 private:
     HWND window = nullptr;
@@ -33,7 +35,7 @@ private:
     HWND layoutFlowRadio = nullptr;
 
     std::unique_ptr<CDocumentView> imagesView;
-    CDocumentModel* model = nullptr;
+    CBasicDocumentModel* model = nullptr;
 };
 
 #endif

@@ -1,7 +1,5 @@
 #include <Defines.h>
 
-#include "DocumentModel.h"
-
 #include <MainWindow.h>
 
 #include <iostream>

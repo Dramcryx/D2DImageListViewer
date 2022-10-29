@@ -1,11 +1,14 @@
 #include <MainWindow.h>
 
+#include <DocumentFromDisk.h>
+
 #include <shellapi.h>
 #include <winuser.rh>
 #include <windowsx.h>
 
 #include <cassert>
 #include <optional>
+#include <stdexcept>
 #include <unordered_map>
 #include <functional>
 
@@ -97,7 +100,18 @@ void CMainWindow::AttachHandle(HWND _window)
     this->window = _window;
 
     imagesView.reset(new CDocumentView{window});
-    imagesView->SetModel(model = new CDocumentModel{});
+    model = new CBasicDocumentModel{};
+    const wchar_t *files[] = {
+        L"../bin/pic1.png",
+        L"../bin/pic2.jpeg",
+        L"../bin/pic3.jpg",
+        L"../bin/pic4.jpg"
+    };
+    for (auto file: files) {
+        model->AddDocument(new CDocumentFromDisk{file});
+    }
+    imagesView->SetModel(model);
+    
 
     layoutGroup = CreateWindowEx(WS_EX_WINDOWEDGE,
                                  L"BUTTON",
@@ -156,8 +170,10 @@ bool CMainWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
 {
     static std::unordered_map<UINT, std::function<void(CMainWindow*, WPARAM, LPARAM)>> messageHandlers {
         {WM_SIZE, &CMainWindow::OnSize},
+        {WM_SIZING, &CMainWindow::OnSizing},
         {WM_DROPFILES, &CMainWindow::OnDropfiles},
-        {WM_COMMAND, &CMainWindow::OnCommand}
+        {WM_COMMAND, &CMainWindow::OnCommand},
+        {WM_KEYDOWN, &CMainWindow::OnKeydown}
     };
 
     auto findRes = messageHandlers.find(msg);
@@ -175,6 +191,17 @@ void CMainWindow::OnSize(WPARAM, LPARAM lParam)
     int height = HIWORD(lParam);
     height -= 50;
     assert(SetWindowPos(*imagesView, nullptr, 0, 50, width, height, SWP_NOZORDER));
+    imagesView->Redraw();
+}
+
+void CMainWindow::OnSizing(WPARAM, LPARAM lParam)
+{
+    auto windowRect = (RECT*)lParam;
+    int width = windowRect->right - windowRect->left;
+    int height = windowRect->bottom - windowRect->top;
+    height -= 50;
+    assert(SetWindowPos(*imagesView, nullptr, 0, 50, width, height, SWP_NOZORDER));
+    imagesView->Redraw();
 }
 
 void CMainWindow::OnDropfiles(WPARAM wParam, LPARAM)
@@ -183,10 +210,15 @@ void CMainWindow::OnDropfiles(WPARAM wParam, LPARAM)
     int filesCount = DragQueryFile(dropHandle, 0xFFFFFFFF, nullptr, 0);
     assert(filesCount != 0);
 
-    wchar_t filename[1024] = {0};
+    std::vector<wchar_t> wcharsBuffer;
+    wcharsBuffer.resize(4096, 0);
     for (int i = 0; i < filesCount; ++i) {
-        assert(DragQueryFile(dropHandle, i, filename, 1023));
-        model->AddImageFromFile(filename);
+        int pathLength = DragQueryFile(dropHandle, i, nullptr, 0);
+        if (pathLength > wcharsBuffer.size()) {
+            wcharsBuffer.resize(pathLength + 1);
+        }
+        assert(DragQueryFile(dropHandle, i, wcharsBuffer.data(), wcharsBuffer.size()));
+        model->AddDocument(new CDocumentFromDisk{wcharsBuffer.data()});
     }
     DragFinish(dropHandle);
     imagesView->Redraw();
@@ -212,5 +244,15 @@ void CMainWindow::OnBnClicked(HWND button)
     }
     if (button == layoutFlowRadio) {
         imagesView->SetAlignment(TImagesViewAlignment::HorizontalFlow);
+    }
+}
+
+void CMainWindow::OnKeydown(WPARAM wParam, LPARAM)
+{
+    if (wParam == VK_DELETE) {
+        auto activeIndex = imagesView->GetActiveIndex();
+        if (activeIndex != -1) {
+            model->DeleteDocument(activeIndex);
+        }
     }
 }
