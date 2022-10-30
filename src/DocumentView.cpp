@@ -220,36 +220,57 @@ void CDocumentView::OnDraw(WPARAM, LPARAM)
                 D2D1::Matrix3x2F::Scale(this->helper->GetZoom(), this->helper->GetZoom())
                     * D2D1::Matrix3x2F::Translation(surfaceLayout.viewportOffset.width, surfaceLayout.viewportOffset.height)};
 
+            // ID2D1RectangleGeometry returns E_NOTIMPL in wine, so let's do plain old interseciton check
+            auto intersects = [](const D2D1_RECT_F& r1, const D2D1_RECT_F& r2) {
+                return !(r2.left > r1.right || r2.right < r1.left || r2.top > r1.bottom || r2.bottom < r1.top);
+            };
+
+            // Non-translated viewport rect with positive coordinates
+            D2D1_RECT_F viewPortRect{
+                surfaceLayout.viewportOffset.width / this->helper->GetZoom(),
+                -surfaceLayout.viewportOffset.height / this->helper->GetZoom(),
+                sizeF.width / this->helper->GetZoom(),
+                (-surfaceLayout.viewportOffset.height + sizeF.height) / this->helper->GetZoom()
+            };
+
             for (auto& pageLayout : surfaceLayout.pageRects) {
-                renderTarget->DrawTextLayout(
-                    {pageLayout.textRect.left, pageLayout.textRect.top},
-                    pageLayout.textLayout.ptr,
-                    surfaceContext.pageFrameBrush
-                );
-                if (pageLayout.page->GetPageState() == TPageState::READY) {
-                    renderTarget->DrawBitmap(
-                        pageLayout.page->GetPageBitmap(),
-                        pageLayout.pageRect,
-                        1.f,
-                        D2D1_BITMAP_INTERPOLATION_MODE_NEAREST_NEIGHBOR,
-                        nullptr
+                if (intersects(viewPortRect, pageLayout.textRect)) {
+                    renderTarget->DrawTextLayout(
+                        {pageLayout.textRect.left, pageLayout.textRect.top},
+                        pageLayout.textLayout.ptr,
+                        surfaceContext.pageFrameBrush
                     );
                 }
 
-                renderTarget->DrawRectangle(
-                    pageLayout.pageRect,
-                    this->surfaceContext.pageFrameBrush,
-                    1.f / this->helper->GetZoom(),
-                    nullptr
-                );
+                if (intersects(viewPortRect, pageLayout.pageRect)) {
+                    if(pageLayout.page->GetPageState() == TPageState::READY) {
+                        renderTarget->DrawBitmap(
+                            pageLayout.page->GetPageBitmap(),
+                            pageLayout.pageRect,
+                            1.f,
+                            D2D1_INTERPOLATION_MODE_NEAREST_NEIGHBOR,
+                            nullptr
+                        );
+                    }
+
+                    renderTarget->DrawRectangle(
+                        pageLayout.pageRect,
+                        this->surfaceContext.pageFrameBrush,
+                        1.f / this->helper->GetZoom(),
+                        nullptr
+                    );
+                }
             }
             if (activeIndex != -1) {
-                renderTarget->DrawRectangle(
-                    surfaceLayout.pageRects.at(activeIndex).pageRect,
-                    surfaceContext.activePageFrameBrush,
-                    1.f / this->helper->GetZoom(),
-                    nullptr
-                );
+                auto& pageRect = surfaceLayout.pageRects.at(activeIndex).pageRect;
+                if (intersects(viewPortRect, pageRect)) {
+                    renderTarget->DrawRectangle(
+                        pageRect,
+                        surfaceContext.activePageFrameBrush,
+                        1.f / this->helper->GetZoom(),
+                        nullptr
+                    );
+                }
             }
         }
 
