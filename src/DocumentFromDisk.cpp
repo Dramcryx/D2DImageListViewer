@@ -139,7 +139,7 @@ CDocumentFromDisk::CDocumentFromDisk(const wchar_t* _fileName) :
     OK(imageDecoder->GetFrameCount(&framesCount));
     for (UINT i = 0; i < framesCount; ++i) {
         CComPtr<IWICBitmapFrameDecode> imageSource = nullptr;
-        assert(imageDecoder->GetFrame(0, &imageSource.ptr) == S_OK);
+        assert(imageDecoder->GetFrame(i, &imageSource.ptr) == S_OK);
 
         auto page = std::make_unique<CWICImage>(this, imageSource.ptr);
         page->Subscribe(this);
