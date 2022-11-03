@@ -12,7 +12,7 @@
 class CWICImage : public IPage
 {
 public:
-    CWICImage(IDocument* parent, IWICBitmapFrameDecode* frame);
+    CWICImage(IWICImagingFactory* factory, IDocument* parent, IWICBitmapFrameDecode* frame);
     ~CWICImage() override;
 
     const IDocument* GetDocument() const override { return parent; }
@@ -33,23 +33,21 @@ const IPage* CDocumentFromDisk::GetPage(int index) const
     return images.at(index).get();
 }
 
-static auto GetWICFactory()
+static auto CreateWICFactory()
 {
-    static CComPtr<IWICImagingFactory> wicFactory = nullptr;
-    if (wicFactory == nullptr) {
-        OK(CoCreateInstance(
-                CLSID_WICImagingFactory,
-                NULL,
-                CLSCTX_INPROC_SERVER,
-                IID_PPV_ARGS(&wicFactory.ptr)
-            )
-        );
-    }
+    CComPtr<IWICImagingFactory> wicFactory = nullptr;
+    OK(CoCreateInstance(
+            CLSID_WICImagingFactory,
+            NULL,
+            CLSCTX_INPROC_SERVER,
+            IID_PPV_ARGS(&wicFactory.ptr)
+        )
+    );
 
     return wicFactory;
 }
 
-CWICImage::CWICImage(IDocument* _parent, IWICBitmapFrameDecode* frame) :
+CWICImage::CWICImage(IWICImagingFactory* factory, IDocument* _parent, IWICBitmapFrameDecode* frame) :
     parent{_parent}
 {
     TRACE()
@@ -58,7 +56,7 @@ CWICImage::CWICImage(IDocument* _parent, IWICBitmapFrameDecode* frame) :
     NOTNULL(frame);
 
     IWICFormatConverter* converter = NULL;
-    OK(GetWICFactory()->CreateFormatConverter(&converter));
+    OK(factory->CreateFormatConverter(&converter));
     OK(converter->Initialize(
             frame,
             GUID_WICPixelFormat32bppPBGRA,
@@ -96,7 +94,7 @@ SIZE CWICImage::GetPageSize() const
 
     if (bitmap.ptr != nullptr) {
         auto size = const_cast<ID2D1Bitmap*>(bitmap.ptr)->GetSize(); 
-        return {size.width, size.height};
+        return {(LONG)size.width, (LONG)size.height};
     }
     return {200, 200};
 }
@@ -120,11 +118,12 @@ void CWICImage::PrepareBitmapForTarget(ID2D1RenderTarget* target)
 }
 
 CDocumentFromDisk::CDocumentFromDisk(const wchar_t* _fileName) :
-    fileName{_fileName}
+    fileName{_fileName},
+    wicFactory{CreateWICFactory()}
 {
     TRACE()
     CComPtr<IWICBitmapDecoder> imageDecoder = nullptr;
-    if(GetWICFactory()->CreateDecoderFromFilename(
+    if(wicFactory->CreateDecoderFromFilename(
                 fileName.c_str(),
                 NULL,
                 GENERIC_READ,
@@ -141,7 +140,7 @@ CDocumentFromDisk::CDocumentFromDisk(const wchar_t* _fileName) :
         CComPtr<IWICBitmapFrameDecode> imageSource = nullptr;
         assert(imageDecoder->GetFrame(i, &imageSource.ptr) == S_OK);
 
-        auto page = std::make_unique<CWICImage>(this, imageSource.ptr);
+        auto page = std::make_unique<CWICImage>(wicFactory, this, imageSource.ptr);
         page->Subscribe(this);
         images.push_back(std::move(page));
     }

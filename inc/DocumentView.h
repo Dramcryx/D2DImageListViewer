@@ -74,6 +74,7 @@ protected:
     void OnSize(WPARAM, LPARAM);
     void OnScroll(WPARAM, LPARAM);
     void OnLButtonUp(WPARAM, LPARAM);
+    void OnDestroy(WPARAM, LPARAM);
 
     void OnDocumentAdded(IDocument* doc) override;
     void OnDocumentDeleted(IDocument* doc) override;

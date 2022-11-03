@@ -208,7 +208,7 @@ void CDocumentLayoutHelper::RefreshLayout()
             auto [pageWidth, pageHeight] = pageRect.page->GetPageSize();
             auto [textWidth, textHeight] = WxH(pageRect.textRect);
             pageRect.textRect = {0.f, 0.f, textWidth, textHeight};
-            pageRect.pageRect = {0.f, textHeight, (float)pageWidth, (float)pageHeight};
+            pageRect.pageRect = {0.f, textHeight, (float)pageWidth, textHeight + (float)pageHeight};
         }
         auto& absoluteLayout = pageRect;
         adjustLayoutForCurrentAlignment(absoluteLayout);
@@ -271,7 +271,7 @@ void CDocumentLayoutHelper::adjustLayoutForCurrentAlignment(CDocumentPagesLayout
 
         auto pageSize = absoluteLayout.page->GetPageSize();
         auto textHeight = Height(absoluteLayout.textRect);
-
+#undef max
         maxWidth = std::max(maxWidth, (float)pageSize.cx + pageMargin * 2);
         topOffset += pageSize.cy + pageMargin * 2 + textHeight;
         topOffset += pagesSpacing;
@@ -420,16 +420,20 @@ void CDocumentLayoutHelper::adjustPage(CDocumentPagesLayout::CPageLayout& absolu
 
 void CDocumentLayoutHelper::calcScrollBars()
 {
+    if(layout.totalSurfaceSize.height == 0.f && layout.totalSurfaceSize.width == 0.f) {
+        return;
+    }
     this->zoom = std::max(this->zoom, 0.1f);
     const float vVisibleToTotal = this->renderTargetSize.height / (layout.totalSurfaceSize.height * this->zoom);
     DEBUG_VAR(vVisibleToTotal)
     DEBUG_VAR(vScroll)
-    vScroll = std::clamp(vScroll, -1.0f + vVisibleToTotal, 0.0f);
+#undef min
+    vScroll = std::clamp(vScroll, std::min(-1.0f + vVisibleToTotal, 0.f), 0.0f);
     DEBUG_VAR(vScroll)
     const float hVisibleToTotal = this->renderTargetSize.width / (layout.totalSurfaceSize.width * this->zoom);
     DEBUG_VAR(hVisibleToTotal)
     DEBUG_VAR(hScroll)
-    hScroll = std::clamp(hScroll, -1.0f + hVisibleToTotal, 0.0f);
+    hScroll = std::clamp(hScroll, std::min(-1.0f + hVisibleToTotal, 0.f), 0.0f);
     DEBUG_VAR(hScroll)
 
     layout.viewportOffset = {

@@ -3,7 +3,11 @@
 
 #include <GenericNotifier.h>
 
+#ifdef __MINGW32__
 #include <windef.h> // SIZE
+#else
+#include <windows.h>
+#endif
 
 /// Fordward declarations ///
 // Direct2D

@@ -28,7 +28,7 @@ namespace {
 
 const wchar_t* DocumentViewClassName = L"DIRECT2DDOCUMENTVIEW";
 
-LRESULT DocumentViewProc(HWND window, UINT msg, WPARAM wParam, LPARAM lParam)
+LRESULT WINAPI DocumentViewProc(HWND window, UINT msg, WPARAM wParam, LPARAM lParam)
 {
     CDocumentView* documentView = nullptr;
     if (msg == WM_CREATE)
@@ -99,7 +99,7 @@ CDocumentView::CDocumentView(HWND parent)
     {
         throw std::runtime_error("CDocumentView::CDocumentView; CreateWindowEx");
     }
-    helper.reset(new DocumentViewPrivate::CDocumentLayoutHelper{});
+    helper.reset( new DocumentViewPrivate::CDocumentLayoutHelper{} );
 }
 
 CDocumentView::~CDocumentView() = default;
@@ -111,6 +111,7 @@ void CDocumentView::AttachHandle(HWND _window)
     this->d2dFactory.Reset();
 
     OK(D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, &d2dFactory.ptr));
+    helper.reset( new DocumentViewPrivate::CDocumentLayoutHelper{} );
 }
 
 void CDocumentView::Show()
@@ -162,7 +163,8 @@ bool CDocumentView::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
         {WM_PAINT, &CDocumentView::OnDraw},
         {WM_SIZE, &CDocumentView::OnSize},
         {WM_MOUSEWHEEL, &CDocumentView::OnScroll},
-        {WM_LBUTTONUP, &CDocumentView::OnLButtonUp}
+        {WM_LBUTTONUP, &CDocumentView::OnLButtonUp},
+        {WM_DESTROY, &CDocumentView::OnDestroy}
     };
 
     auto findRes = messageHandlers.find(msg);
@@ -323,9 +325,9 @@ void CDocumentView::OnScroll(WPARAM wParam, LPARAM lParam)
         if (this->surfaceContext.deviceContext != nullptr
                 && this->surfaceContext.deviceContext->GetSize().height - screenPoint.y < 10 )
         {
-            this->helper->AddHScroll(mouseDelta > 0 ? 0.015 : -0.015);
+            this->helper->AddHScroll(mouseDelta > 0 ? 0.015f : -0.015f);
         } else {
-            this->helper->AddVScroll(mouseDelta > 0 ? 0.015 : -0.015);
+            this->helper->AddVScroll(mouseDelta > 0 ? 0.015f : -0.015f);
         }
     }
     this->Redraw();
@@ -351,7 +353,7 @@ void CDocumentView::OnLButtonUp(WPARAM wParam, LPARAM lParam)
         };
 
         int oldIndex = std::exchange(this->activeIndex, -1);
-        for (int i = 0; i < surfaceLayout.pageRects.size(); ++i) {
+        for (auto i = 0u; i < surfaceLayout.pageRects.size(); ++i) {
             if (isPtInRect(surfaceLayout.pageRects[i].pageRect)) {
                 this->activeIndex = i;
                 break;
@@ -361,6 +363,11 @@ void CDocumentView::OnLButtonUp(WPARAM wParam, LPARAM lParam)
             this->Redraw();
         }
     }
+}
+
+void CDocumentView::OnDestroy(WPARAM, LPARAM)
+{
+    this->model.reset();
 }
 
 void CDocumentView::OnDocumentAdded(IDocument* doc)
@@ -387,6 +394,9 @@ void CDocumentView::OnDocumentDeleted(IDocument* doc)
     }
     for (int i = 0; i < doc->GetPagesCount(); ++i) {
         this->helper->DeletePage(doc->GetPage(i));
+    }
+    if (this->model->GetTotalPageCount() >= this->activeIndex) {
+        this->activeIndex = -1;
     }
     this->Redraw();
 }
@@ -545,5 +555,5 @@ void CDocumentView::resize(int width, int height)
         this->surfaceContext.deviceContext->SetTarget(nullptr);
         createSwapChainBitmap();
     }
-    this->helper->SetRenderTargetSize(D2D1_SIZE_F{float{width}, float{height}});
+    this->helper->SetRenderTargetSize(D2D1_SIZE_F{(float)width, (float)height});
 }

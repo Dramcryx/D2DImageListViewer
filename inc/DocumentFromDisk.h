@@ -1,12 +1,15 @@
 #ifndef D2DILV_DOCUMENT_FROM_DISK_H
 #define D2DILV_DOCUMENT_FROM_DISK_H
 
+#include <ComPtr.h>
 #include <IDocumentModel.h>
 
 #include <memory>
 #include <string>
 
 class CWICImage;
+
+struct IWICImagingFactory;
 
 class CDocumentFromDisk : public IDocument
 {
@@ -21,6 +24,7 @@ public:
 
 private:
     std::wstring fileName;
+    CComPtr<IWICImagingFactory> wicFactory;
     std::vector<std::unique_ptr<CWICImage>> images;
 };
 

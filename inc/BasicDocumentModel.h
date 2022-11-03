@@ -7,7 +7,7 @@
 #include <vector>
 #include <memory>
 
-class IDWriteTextFormat;
+struct IDWriteTextFormat;
 
 /// @brief Generic document model implementation.
 /// Supports adding and deleting documents and notifying view about that.

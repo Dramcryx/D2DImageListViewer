@@ -73,7 +73,11 @@ void* CBasicDocumentModel::GetData(int index, TDocumentModelRoles role) const
         
         wchar_t pageTitleBuffer[4096] = {0};
         wsprintf(pageTitleBuffer, L"%s %d of %d", documentName, indexInDocument + 1, document->GetPagesCount());
+#ifdef __MINGW32__
         return wcsdup(pageTitleBuffer);
+#else
+        return _wcsdup( pageTitleBuffer );
+#endif
     }
     case TDocumentModelRoles::ToolbarRole:
         return nullptr;
@@ -105,7 +109,7 @@ void CBasicDocumentModel::DeleteDocument(int index)
 {
     TRACE()
 
-    assert(0 <= index && index < documents.size());
+    assert(0 <= index && index < (int)documents.size());
     std::unique_ptr<IDocument> released{documents[index].release()};
     released->Unsubscribe(this);
     documents.erase(documents.begin() + index);

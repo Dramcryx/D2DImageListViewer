@@ -18,7 +18,7 @@ constexpr int MainWindowMenu = 2580;
 
 const wchar_t* MainWindowClassName = L"DIRECT2DEXAMPLEMAINWINDOW";
 
-LRESULT MainWndowProc(HWND window, UINT msg, WPARAM wParam, LPARAM lParam)
+LRESULT WINAPI MainWndowProc(HWND window, UINT msg, WPARAM wParam, LPARAM lParam)
 {
     CMainWindow* mainWindow = nullptr;
     if (msg == WM_CREATE)
