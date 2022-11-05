@@ -4,9 +4,9 @@ set(CMAKE_CXX_COMPILER x86_64-w64-mingw32-g++)
 set(CXX_STANDARD 17)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-add_library(imageviewer src/DocumentView.cpp src/DocumentViewPrivate.cpp src/BasicDocumentModel.cpp src/DocumentFromDisk.cpp)
+add_library(imageviewer src/DocumentView.cpp src/DocumentViewPrivate.cpp src/BasicDocumentModel.cpp src/DocumentFromDisk.cpp src/SelectionModel.cpp)
 
-target_compile_definitions (imageviewer PUBLIC DEBUG)
+#target_compile_definitions (imageviewer PUBLIC DEBUG)
 target_include_directories (imageviewer PUBLIC inc src)
 target_compile_options (imageviewer PUBLIC -mwindows -municode -g -O2)
 target_link_libraries (imageviewer PUBLIC -static gcc stdc++ winpthread -dynamic gdiplus comctl32 d2d1 d3d11 dxguid ole32 windowscodecs dwrite)
