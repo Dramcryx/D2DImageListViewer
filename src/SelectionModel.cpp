@@ -2,8 +2,6 @@
 
 #include <Defines.h>
 
-#include <unordered_set>
-
 CSelectionModel::CSelectionModel(IDocumentsModel* _model) : model{_model}
 {
     if (model != nullptr) {
@@ -13,7 +11,8 @@ CSelectionModel::CSelectionModel(IDocumentsModel* _model) : model{_model}
 
 CSelectionModel::~CSelectionModel()
 {
-    if (model != nullptr) {
+    if (model != nullptr)
+    {
         model->Unsubscribe(this);
         model = nullptr;
     }
@@ -62,7 +61,8 @@ void CSelectionModel::Select(int index, TSelectionMode mode)
     }
     case TSelectionMode::SelectRange:
     {
-        if (activeIndex == -1) {
+        if (activeIndex == -1)
+        {
             this->selectOneActive(index);
             break;
         }
@@ -75,7 +75,8 @@ void CSelectionModel::Select(int index, TSelectionMode mode)
     }
     case TSelectionMode::SelectAppend:
     {
-        if (activeIndex == -1) {
+        if (activeIndex == -1)
+        {
             this->selectOneActive(index);
             break;
         }
@@ -103,7 +104,8 @@ void CSelectionModel::Deselect(int index, TSelectionMode mode)
     }
     case TSelectionMode::SelectRange:
     {
-        if (activeIndex == -1) {
+        if (activeIndex == -1)
+        {
             this->ClearSelection();
             return;
         }
@@ -116,7 +118,8 @@ void CSelectionModel::Deselect(int index, TSelectionMode mode)
     }
     case TSelectionMode::SelectAppend:
     {
-        if (activeIndex == -1) {
+        if (activeIndex == -1)
+        {
             this->ClearSelection();
             return;
         }

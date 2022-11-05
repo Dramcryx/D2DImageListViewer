@@ -123,7 +123,7 @@ void CDocumentView::Show()
 void CDocumentView::Redraw()
 {
     assert(this->window != nullptr);
-    assert(InvalidateRect(this->window, NULL, false));
+    assert(InvalidateRect(this->window, nullptr, false));
     assert(UpdateWindow(this->window));
 }
 
