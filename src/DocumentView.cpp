@@ -1,6 +1,7 @@
 #include <DocumentView.h>
 
 #include "DocumentViewPrivate.h"
+#include "SelectionModel.h"
 
 #include <Direct2DMatrixSwitcher.h>
 
@@ -99,7 +100,7 @@ CDocumentView::CDocumentView(HWND parent)
     {
         throw std::runtime_error("CDocumentView::CDocumentView; CreateWindowEx");
     }
-    helper.reset( new DocumentViewPrivate::CDocumentLayoutHelper{} );
+    helper.reset(new DocumentViewPrivate::CDocumentLayoutHelper{});
 }
 
 CDocumentView::~CDocumentView() = default;
@@ -131,6 +132,7 @@ void CDocumentView::SetModel(IDocumentsModel* _model)
     if (this->model != nullptr) {
         this->model->Unsubscribe(this);
     }
+    this->selectionModel.SetModel(_model);
     this->model.reset(_model);
     this->helper->ClearPages();
     if (this->model == nullptr) {
@@ -155,6 +157,11 @@ void CDocumentView::SetModel(IDocumentsModel* _model)
 IDocumentsModel* CDocumentView::GetModel() const
 {
     return this->model.get();
+}
+
+std::vector<int> CDocumentView::GetSelectedPages() const
+{
+    return this->selectionModel.GetSelectedPages();
 }
 
 bool CDocumentView::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
@@ -263,15 +270,17 @@ void CDocumentView::OnDraw(WPARAM, LPARAM)
                     );
                 }
             }
-            if (activeIndex != -1) {
-                auto& pageRect = surfaceLayout.pageRects.at(activeIndex).pageRect;
-                if (intersects(viewPortRect, pageRect)) {
-                    renderTarget->DrawRectangle(
-                        pageRect,
-                        surfaceContext.activePageFrameBrush,
-                        1.f / this->helper->GetZoom(),
-                        nullptr
-                    );
+            if (this->selectionModel.HasSelection()) {
+                for (auto index : selectionModel.GetSelectedPages()) {
+                    auto& pageRect = surfaceLayout.pageRects.at(index).pageRect;
+                    if (intersects(viewPortRect, pageRect)) {
+                        renderTarget->DrawRectangle(
+                            pageRect,
+                            surfaceContext.activePageFrameBrush,
+                            1.f / this->helper->GetZoom(),
+                            nullptr
+                        );
+                    }
                 }
             }
         }
@@ -336,6 +345,18 @@ void CDocumentView::OnScroll(WPARAM wParam, LPARAM lParam)
 
 void CDocumentView::OnLButtonUp(WPARAM wParam, LPARAM lParam)
 {
+    TSelectionMode sm = [wParam]
+    {
+        switch (wParam)
+        {
+        case MK_CONTROL:
+            return TSelectionMode::SelectAppend;
+        case MK_SHIFT:
+            return TSelectionMode::SelectRange;
+        default:
+            return TSelectionMode::SelectOne;
+        }
+    }();
     (void)wParam; // Ignore key for now
     int xClient = LOWORD(lParam) / this->helper->GetZoom();
     int yClient = HIWORD(lParam) / this->helper->GetZoom();
@@ -352,21 +373,27 @@ void CDocumentView::OnLButtonUp(WPARAM wParam, LPARAM lParam)
                     && rect.top <= yClient && rect.bottom >= yClient;
         };
 
-        int oldIndex = std::exchange(this->activeIndex, -1);
+        bool foundIntersection = false;
         for (auto i = 0u; i < surfaceLayout.pageRects.size(); ++i) {
             if (isPtInRect(surfaceLayout.pageRects[i].pageRect)) {
-                this->activeIndex = i;
+                if (this->selectionModel.IsSelected(i)) {
+                    this->selectionModel.Deselect(i, sm);
+                } else {
+                    this->selectionModel.Select(i, sm);
+                }
+                foundIntersection = true;
                 break;
             }
         }
-        if (oldIndex != this->activeIndex) {
-            this->Redraw();
+        if (!foundIntersection) {
+            this->selectionModel.ClearSelection();
         }
     }
 }
 
 void CDocumentView::OnDestroy(WPARAM, LPARAM)
 {
+    this->selectionModel.SetModel(nullptr);
     this->model.reset();
 }
 
@@ -394,9 +421,6 @@ void CDocumentView::OnDocumentDeleted(IDocument* doc)
     }
     for (int i = 0; i < doc->GetPagesCount(); ++i) {
         this->helper->DeletePage(doc->GetPage(i));
-    }
-    if (this->model->GetTotalPageCount() >= this->activeIndex) {
-        this->activeIndex = -1;
     }
     this->Redraw();
 }

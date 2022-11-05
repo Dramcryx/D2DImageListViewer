@@ -5,6 +5,7 @@
 #include <ComPtr.h>
 #include <IDocumentModel.h>
 #include <DocumentViewParams.h>
+#include <SelectionModel.h>
 
 #include <d2d1_1.h>
 #include <dxgi1_2.h>
@@ -18,7 +19,7 @@ class CDocumentLayoutHelper;
 }
 
 /// @brief Viewer of the document model. Subscribes to model's notifications.
-class CDocumentView : private IDocumentsModelCallback {
+class CDocumentView : private IDocumentsModelCallback, private ISelectionModelCallback {
 public:
     /// @brief Constructor
     /// @param parent Parent window to attach
@@ -49,9 +50,7 @@ public:
     /// @return Model-owned pointer to the model
     IDocumentsModel* GetModel() const;
 
-    /// @brief Get active index if exists
-    /// @return Active index or -1 if none is active
-    int GetActiveIndex() const { return activeIndex; }
+    std::vector<int> GetSelectedPages() const;
 
     /// @brief Messgage handler called by window procedure
     /// @param msg Message ID
@@ -79,11 +78,13 @@ protected:
     void OnDocumentAdded(IDocument* doc) override;
     void OnDocumentDeleted(IDocument* doc) override;
 
+    void OnSelectionChanged(const std::vector<int>& /*newSelection*/) override { this->Redraw(); }
+
 private:
     HWND window = NULL;
 
     std::unique_ptr<IDocumentsModel> model = nullptr;
-    int activeIndex = -1;
+    CSelectionModel selectionModel;
 
     CComPtr<ID2D1Factory1> d2dFactory = nullptr;
     std::unique_ptr<DocumentViewPrivate::CDocumentLayoutHelper> helper;

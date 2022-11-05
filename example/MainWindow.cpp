@@ -8,6 +8,7 @@
 
 #include <cassert>
 #include <optional>
+#include <set>
 #include <stdexcept>
 #include <unordered_map>
 #include <functional>
@@ -250,9 +251,14 @@ void CMainWindow::OnBnClicked(HWND button)
 void CMainWindow::OnKeydown(WPARAM wParam, LPARAM)
 {
     if (wParam == VK_DELETE) {
-        auto activeIndex = imagesView->GetActiveIndex();
-        if (activeIndex != -1) {
-            model->DeleteDocument(activeIndex);
+        auto selection = this->imagesView->GetSelectedPages();
+        std::set<const IDocument*> docs;
+        for (auto page : selection) {
+            auto pagePtr = reinterpret_cast<IPage*>(model->GetData(page, TDocumentModelRoles::PageRole));
+            docs.insert(pagePtr->GetDocument());
+        }
+        for (auto doc : docs) {
+            model->DeleteDocument(doc);
         }
     }
 }
